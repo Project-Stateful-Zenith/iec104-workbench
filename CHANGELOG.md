@@ -6,6 +6,8 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-21
+
 ### Added
 
 - Simulator points carry the NT, SB, BL and OV quality flags besides IV,
@@ -39,21 +41,21 @@ follow [Semantic Versioning](https://semver.org/).
   the CA the station answers with; the status bar hints once per CA when
   received ASDUs carry another CA than the configured one, with a "use CA
   n" button (#51).
-
-### Changed
-
-- Built on zenith-iec104 0.36.
 - Redundancy groups (IEC 60870-5-104 clause 10): further `host:port`s to
   the same station in the settings make the connections one group, one of
   them started. The bar shows every member's state and STARTDT on a chosen
   member is a manual switchover; switchovers show in the status bar, data
   a failed started connection left unconfirmed is sent again on the next
-  started one, and the telegram list has a Conn column.
+  started one, and the telegram list has a Conn column (#32).
 - Telegrams → Export as text… and Export as JSON… write the telegrams the
   list shows: as text with each telegram's details, or as JSON with time,
   direction, octets, type, cause, CA, object addresses and summary (#34).
 - Points tab: tick a point's Chart box to draw its value over time; the
   last 10 000 numeric values per point are kept (#37).
+
+### Changed
+
+- Built on zenith-iec104 0.36.
 
 ### Fixed
 
@@ -159,7 +161,8 @@ The first release.
 - TOML profiles; the last settings are remembered.
 - Prebuilt binaries for Windows, macOS and Linux.
 
-[Unreleased]: https://github.com/Project-Stateful-Zenith/iec104-workbench/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/Project-Stateful-Zenith/iec104-workbench/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/Project-Stateful-Zenith/iec104-workbench/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Project-Stateful-Zenith/iec104-workbench/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Project-Stateful-Zenith/iec104-workbench/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Project-Stateful-Zenith/iec104-workbench/compare/v0.2.0...v0.3.0
