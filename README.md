@@ -18,7 +18,7 @@ table of the values the station reports, and sends whatever you build.
 | Telegrams | every APDU sent and received, filtered, decoded layer by layer |
 | Points | the latest value, quality and time tag of every information object |
 | Send | process, system, parameter and monitor-direction messages, or raw ASDU octets |
-| Files | the station's directory, and file downloads |
+| Files | the station's directory, file downloads and uploads |
 | Station | simulator mode: the workbench is the controlled station, with points you edit and report |
 
 > [!NOTE]
@@ -60,13 +60,15 @@ What it covers:
   test bit; raw ASDU octets in hex with a live decode.
 - **Files**: call the station's directory, list its files and download
   one, from the list or by address and name, with every section's and the
-  file's checksum checked.
+  file's checksum checked; upload a file to the station in the control
+  direction.
 - **Simulator**: switch the mode to Simulator and the workbench listens as
   a controlled station, over TCP or mutual TLS. It answers interrogation,
   counter interrogation, read, clock synchronisation and test commands from
   its points, sends a value you edit as a spontaneous event, takes commands
   on the points you mark (directly or by select and execute), and can echo
-  a command's result as return information. Every frame goes to the telegram list.
+  a command's result as return information. It serves files too: a call
+  directory lists them and a client can download them. Every frame goes to the telegram list.
 - **Profiles**: all settings, simulator points included, saved and loaded
   as TOML; the last ones are remembered.
 
@@ -104,7 +106,7 @@ zenith-iec104's own server; no hardware is needed.
 
 Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
-Not yet in this version: uploading files, serving files from the simulator,
+Not yet in this version: receiving uploaded files in the simulator,
 scripting and redundancy groups.
 
 ## Disclaimer

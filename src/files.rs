@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use iec104::asdu::{Known, Nof, TimeTag};
+use iec104::ft::provide::Provider;
 use iec104::ft::receive::{DirectoryCall, DirectoryFile, Failure, Progress, Receiver};
 use iec104::ft::{FileTransferProcedure, FtError, Selection};
 
@@ -13,6 +14,12 @@ enum Session {
         ioa: u32,
         nof: u16,
         path: PathBuf,
+    },
+    Upload {
+        provider: Provider,
+        ioa: u32,
+        nof: u16,
+        len: usize,
     },
 }
 
@@ -55,6 +62,10 @@ fn failure_text(failure: &Failure) -> String {
             expected.value, got.value
         ),
         Failure::UnknownLsq(lsq) => format!("unknown LSQ {}", lsq.value),
+        Failure::Deactivated { scq } => format!("the station stopped it (SCQ {})", scq.action),
+        Failure::FileRejected { afq } => {
+            format!("the station rejected the file (AFQ error {})", afq.error)
+        }
     }
 }
 
@@ -96,6 +107,35 @@ impl Files {
         Ok(asdu)
     }
 
+    /// Offers `content` as the file `nof` at `ioa` in the control direction:
+    /// the station calls it after this file ready.
+    pub fn upload(
+        &mut self,
+        ctx: &Context,
+        ioa: u32,
+        nof: u16,
+        content: Vec<u8>,
+    ) -> Result<Vec<u8>, String> {
+        let len = content.len();
+        let procedure = FileTransferProcedure::controlling(
+            Selection::CONTROL,
+            ctx.common_address,
+            ctx.originator,
+        )
+        .with_address_sizes(ctx.sizes);
+        let provider = Provider::new(procedure, ioa, Nof { value: nof }, content)
+            .ok_or("the file is longer than IEC 104 can transfer (16 MiB)")?;
+        let asdu = provider.announce().map_err(|e| format!("{e:?}"))?;
+        self.status = format!("file {nof} at IOA {ioa} offered");
+        self.session = Some(Session::Upload {
+            provider,
+            ioa,
+            nof,
+            len,
+        });
+        Ok(asdu)
+    }
+
     pub fn cancel(&mut self) {
         if self.session.take().is_some() {
             self.status = "cancelled".into();
@@ -116,6 +156,9 @@ impl Files {
                     )
                 },
             )),
+            Session::Upload { ioa, nof, len, .. } => {
+                Some(format!("uploading file {nof} ({len} octets) to IOA {ioa}"))
+            }
         }
     }
 
@@ -156,6 +199,23 @@ impl Files {
                         }
                         Progress::Failed(failure) => {
                             self.status = format!("download failed: {}", failure_text(&failure));
+                            self.session = None;
+                        }
+                    }
+                    step.send
+                }
+                Err(e) => self.ignore(&e),
+            },
+            Some(Session::Upload { provider, len, .. }) => match provider.on_asdu(asdu, &known) {
+                Ok(step) => {
+                    match step.progress {
+                        Progress::Running => {}
+                        Progress::Complete(()) => {
+                            self.status = format!("uploaded {len} octets");
+                            self.session = None;
+                        }
+                        Progress::Failed(failure) => {
+                            self.status = format!("upload failed: {}", failure_text(&failure));
                             self.session = None;
                         }
                     }
@@ -263,6 +323,36 @@ mod tests {
             })
             .collect();
         assert_eq!(saved, expected, "{}", files.status);
+    }
+
+    #[test]
+    fn uploads_to_a_receiving_station() {
+        let mut files = Files::default();
+        let content: Vec<u8> = (0..5000u16)
+            .map(|i| u8::try_from(i % 256).unwrap())
+            .collect();
+        let offer = files.upload(&CTX, 7, 3, content.clone()).unwrap();
+        let mut station = Receiver::new(
+            FileTransferProcedure::controlled(Selection::CONTROL, 1, 0),
+            7,
+            Nof { value: 3 },
+        );
+        let mut to_station = vec![offer];
+        let mut received = None;
+        while !to_station.is_empty() {
+            for asdu in std::mem::take(&mut to_station) {
+                let step = station.on_asdu(&asdu, &Known::EVERYTHING).unwrap();
+                if let Progress::Complete(file) = step.progress {
+                    received = Some(file);
+                }
+                for reply in step.send {
+                    to_station.extend(files.on_asdu(&reply));
+                }
+            }
+        }
+        assert_eq!(received, Some(content));
+        assert!(!files.busy());
+        assert_eq!(files.status, "uploaded 5000 octets");
     }
 
     #[test]

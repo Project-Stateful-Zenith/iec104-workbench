@@ -12,7 +12,7 @@ use crate::driver::{Driver, Notice, NoticeKind, state_name};
 use crate::files::{Files, entry_time};
 use crate::points::Points;
 use crate::settings::Settings;
-use crate::simulator::{Kind, SimPoint, Simulator, value_text};
+use crate::simulator::{Kind, ServedFile, SimPoint, Simulator, value_text};
 use crate::telegram::{Category, Dir, Filter, Matcher, Telegram, cause_name, hex};
 
 const SETTINGS_KEY: &str = "settings";
@@ -475,6 +475,8 @@ impl App {
             self.settings.station.remove(i);
         }
         ui.separator();
+        self.served_files(ui);
+        ui.separator();
         egui::ScrollArea::vertical()
             .stick_to_bottom(true)
             .show(ui, |ui| {
@@ -515,6 +517,66 @@ impl App {
         self.start_file(started);
     }
 
+    fn upload(&mut self, ioa: u32, nof: u16) {
+        let Some(path) = rfd::FileDialog::new().pick_file() else {
+            return;
+        };
+        let started = match std::fs::read(&path) {
+            Ok(content) => {
+                let ctx = self.send_ctx();
+                self.files.upload(&ctx, ioa, nof, content)
+            }
+            Err(e) => Err(format!("{}: {e}", path.display())),
+        };
+        self.start_file(started);
+    }
+
+    fn served_files(&mut self, ui: &mut Ui) {
+        let running = self.simulator.is_some();
+        ui.horizontal(|ui| {
+            ui.strong("Served files");
+            if ui
+                .add_enabled(!running, egui::Button::new("Add file…"))
+                .clicked()
+                && let Some(path) = rfd::FileDialog::new().pick_file()
+            {
+                let ioa = self.settings.served.iter().map(|f| f.ioa).max();
+                let nof = self.settings.served.iter().map(|f| f.nof).max();
+                self.settings.served.push(ServedFile {
+                    ioa: ioa.map_or(30000, |n| n.saturating_add(1)),
+                    nof: nof.map_or(1, |n| n.saturating_add(1)),
+                    path: path.display().to_string(),
+                });
+            }
+        });
+        let mut remove = None;
+        egui::Grid::new("served").num_columns(4).show(ui, |ui| {
+            for (i, file) in self.settings.served.iter_mut().enumerate() {
+                ui.add_enabled(
+                    !running,
+                    egui::DragValue::new(&mut file.ioa)
+                        .prefix("IOA ")
+                        .range(1..=16_777_215),
+                );
+                ui.add_enabled(
+                    !running,
+                    egui::DragValue::new(&mut file.nof).prefix("name "),
+                );
+                ui.label(&file.path);
+                if ui
+                    .add_enabled(!running, egui::Button::new("Remove"))
+                    .clicked()
+                {
+                    remove = Some(i);
+                }
+                ui.end_row();
+            }
+        });
+        if let Some(i) = remove {
+            self.settings.served.remove(i);
+        }
+    }
+
     fn files_view(&mut self, ui: &mut Ui) {
         let busy = self.files.busy();
         ui.add_enabled_ui(!busy, |ui| {
@@ -534,12 +596,16 @@ impl App {
                 ui.add(egui::TextEdit::singleline(&mut self.files.file_ioa).desired_width(80.0));
                 ui.label("name (NOF)");
                 ui.add(egui::TextEdit::singleline(&mut self.files.file_nof).desired_width(60.0));
-                if ui.button("Download…").clicked() {
-                    match (
-                        self.files.file_ioa.trim().parse(),
-                        self.files.file_nof.trim().parse(),
-                    ) {
-                        (Ok(ioa), Ok(nof)) => self.download(ioa, nof),
+                let address = (
+                    self.files.file_ioa.trim().parse(),
+                    self.files.file_nof.trim().parse(),
+                );
+                let download = ui.button("Download…").clicked();
+                let upload = ui.button("Upload…").clicked();
+                if download || upload {
+                    match address {
+                        (Ok(ioa), Ok(nof)) if download => self.download(ioa, nof),
+                        (Ok(ioa), Ok(nof)) => self.upload(ioa, nof),
                         _ => self.files.status = "IOA and name must be numbers".into(),
                     }
                 }

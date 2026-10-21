@@ -4,7 +4,7 @@ use std::sync::mpsc;
 use std::sync::{Arc, OnceLock};
 use std::task::{Context, Poll};
 
-use iec104::asdu::{Cause, DoubleCommandState, DoublePointState, Nva, Quality, Value};
+use iec104::asdu::{Cause, DoubleCommandState, DoublePointState, Nof, Nva, Quality, Value};
 use iec104::ct::{Command, CommandMode, CommandValue, Family};
 use iec104_tls::TlsConfig;
 use iec104_tokio::Event;
@@ -130,6 +130,14 @@ impl SimPoint {
             ..Quality::default()
         }
     }
+}
+
+/// A file the simulator serves, read from `path` when it starts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServedFile {
+    pub ioa: u32,
+    pub nof: u16,
+    pub path: String,
 }
 
 /// The text [`SimPoint::parse`] reads back as `value`.
@@ -264,6 +272,10 @@ impl Simulator {
             {
                 config = config.command(point.ioa, family);
             }
+        }
+        for file in &settings.served {
+            let content = std::fs::read(&file.path).map_err(|e| format!("{}: {e}", file.path))?;
+            config = config.file(file.ioa, Nof { value: file.nof }, content);
         }
         let tls = settings
             .tls
@@ -545,6 +557,78 @@ mod tests {
         simulator.shutdown();
         assert_eq!(confirmations, [false, true, true]);
         assert!(returned);
+    }
+
+    #[test]
+    fn serves_files_to_the_client() {
+        use crate::files::Files;
+
+        let content: Vec<u8> = (0..3000u16)
+            .map(|i| u8::try_from(i % 251).unwrap())
+            .collect();
+        let source = std::env::temp_dir().join("iec104-workbench-served.bin");
+        std::fs::write(&source, &content).unwrap();
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let settings = Settings {
+            port,
+            served: vec![ServedFile {
+                ioa: 30000,
+                nof: 4,
+                path: source.display().to_string(),
+            }],
+            ..Settings::default()
+        };
+        let (station_tx, _station_rx) = mpsc::channel();
+        let simulator = Simulator::start(&settings, true, station_tx, || {}).unwrap();
+        let (tx, rx) = mpsc::channel();
+        let driver = Driver::connect(&settings, tx, || {}).unwrap();
+        let ctx = SendContext {
+            sizes: settings.sizes().unwrap(),
+            common_address: settings.common_address,
+            originator: 0,
+        };
+        let target = std::env::temp_dir().join("iec104-workbench-fetched.bin");
+        let mut files = Files::default();
+        let mut step = 0;
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline && step < 3 {
+            let Ok(notice) = rx.recv_timeout(Duration::from_millis(100)) else {
+                continue;
+            };
+            match notice.kind {
+                NoticeKind::Event(Event::State {
+                    state: State::Started,
+                    ..
+                }) if step == 0 => {
+                    driver.send(files.call_directory(&ctx).unwrap());
+                    step = 1;
+                }
+                NoticeKind::Event(Event::Asdu { asdu, .. }) => {
+                    for reply in files.on_asdu(&asdu) {
+                        driver.send(reply);
+                    }
+                    if step == 1 && !files.busy() {
+                        let listed = files.listing.first().unwrap();
+                        assert_eq!((listed.ioa, listed.entry.nof.value), (30000, 4));
+                        driver.send(files.download(&ctx, 30000, 4, target.clone()).unwrap());
+                        step = 2;
+                    } else if step == 2 && !files.busy() {
+                        step = 3;
+                    }
+                }
+                _ => {}
+            }
+        }
+        driver.shutdown();
+        simulator.shutdown();
+        let fetched = std::fs::read(&target).unwrap();
+        let _ = std::fs::remove_file(&source);
+        let _ = std::fs::remove_file(&target);
+        assert_eq!(fetched, content, "{}", files.status);
     }
 
     #[test]

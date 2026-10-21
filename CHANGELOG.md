@@ -6,6 +6,18 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Upload: the Files tab offers a file to the station in the control
+  direction and answers its requests for it, section by section.
+- The simulator serves files: add them under *Served files* in the Station
+  tab with an address and a name. A call directory lists them and a client
+  can download them. Profiles keep the list.
+
+### Changed
+
+- Built on zenith-iec104 0.35.
+
 ## [0.4.0] - 2026-10-21
 
 ### Added

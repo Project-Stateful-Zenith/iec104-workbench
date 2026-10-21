@@ -6,7 +6,7 @@ use iec104::params::LinkParams;
 use iec104_tls::{Identity, TlsConfig, certificates_from_pem_file};
 use serde::{Deserialize, Serialize};
 
-use crate::simulator::SimPoint;
+use crate::simulator::{ServedFile, SimPoint};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -28,6 +28,7 @@ pub struct Settings {
     pub auto_start: bool,
     pub tls: Tls,
     pub station: Vec<SimPoint>,
+    pub served: Vec<ServedFile>,
     /// Simulator: report a commanded point's new value as return information.
     pub echo: bool,
     /// Simulator: commands need a select before the execute.
@@ -64,6 +65,7 @@ impl Default for Settings {
             auto_start: true,
             tls: Tls::default(),
             station: (1..=3).map(SimPoint::new).collect(),
+            served: Vec::new(),
             echo: true,
             select_before_execute: false,
         }
