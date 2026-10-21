@@ -3,6 +3,7 @@
 mod app;
 mod commands;
 mod driver;
+mod files;
 mod points;
 mod settings;
 mod simulator;

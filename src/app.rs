@@ -9,6 +9,7 @@ use iec104_tokio::Event;
 
 use crate::commands::{self, Action, Forms};
 use crate::driver::{Driver, Notice, NoticeKind, state_name};
+use crate::files::{Files, entry_time};
 use crate::points::Points;
 use crate::settings::Settings;
 use crate::simulator::{Kind, SimPoint, Simulator, value_text};
@@ -20,6 +21,7 @@ const SETTINGS_KEY: &str = "settings";
 enum View {
     Telegrams,
     Points,
+    Files,
     Station,
 }
 
@@ -44,6 +46,7 @@ pub struct App {
     driver: Option<Driver>,
     simulator: Option<Simulator>,
     pending: Option<Pending>,
+    files: Files,
     log: Vec<String>,
     notices: mpsc::Receiver<Notice>,
     sender: mpsc::Sender<Notice>,
@@ -77,6 +80,7 @@ impl App {
             driver: None,
             simulator: None,
             pending: None,
+            files: Files::default(),
             log: Vec::new(),
             notices,
             sender,
@@ -133,6 +137,11 @@ impl App {
                         self.push(Telegram::new(notice.at, Dir::Rx, frame, sizes));
                     }
                     Event::Asdu { asdu, .. } => {
+                        for reply in self.files.on_asdu(&asdu) {
+                            if let Some(driver) = &self.driver {
+                                driver.send(reply);
+                            }
+                        }
                         self.confirm(&asdu);
                         self.points.apply(&asdu, sizes, notice.at);
                     }
@@ -473,6 +482,130 @@ impl App {
                     ui.monospace(line);
                 }
             });
+    }
+
+    fn send_ctx(&self) -> commands::Context {
+        commands::Context {
+            sizes: self.sizes(),
+            common_address: self.settings.common_address,
+            originator: self.settings.originator,
+        }
+    }
+
+    fn start_file(&mut self, started: Result<Vec<u8>, String>) {
+        match (started, &self.driver) {
+            (Ok(asdu), Some(driver)) => driver.send(asdu),
+            (Ok(_), None) => {
+                self.files.cancel();
+                self.files.status = "not connected".into();
+            }
+            (Err(e), _) => self.files.status = e,
+        }
+    }
+
+    fn download(&mut self, ioa: u32, nof: u16) {
+        let Some(path) = rfd::FileDialog::new()
+            .set_file_name(format!("file-{ioa}-{nof}.bin"))
+            .save_file()
+        else {
+            return;
+        };
+        let ctx = self.send_ctx();
+        let started = self.files.download(&ctx, ioa, nof, path);
+        self.start_file(started);
+    }
+
+    fn files_view(&mut self, ui: &mut Ui) {
+        let busy = self.files.busy();
+        ui.add_enabled_ui(!busy, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Directory at IOA");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.files.directory_ioa).desired_width(80.0),
+                );
+                if ui.button("Call directory").clicked() {
+                    let ctx = self.send_ctx();
+                    let started = self.files.call_directory(&ctx);
+                    self.start_file(started);
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("File at IOA");
+                ui.add(egui::TextEdit::singleline(&mut self.files.file_ioa).desired_width(80.0));
+                ui.label("name (NOF)");
+                ui.add(egui::TextEdit::singleline(&mut self.files.file_nof).desired_width(60.0));
+                if ui.button("Download…").clicked() {
+                    match (
+                        self.files.file_ioa.trim().parse(),
+                        self.files.file_nof.trim().parse(),
+                    ) {
+                        (Ok(ioa), Ok(nof)) => self.download(ioa, nof),
+                        _ => self.files.status = "IOA and name must be numbers".into(),
+                    }
+                }
+            });
+        });
+        ui.horizontal(|ui| {
+            if let Some(progress) = self.files.progress() {
+                ui.spinner();
+                ui.label(progress);
+                if ui.button("Cancel").clicked() {
+                    self.files.cancel();
+                }
+            } else {
+                ui.label(&self.files.status);
+            }
+        });
+        ui.separator();
+        let mut chosen = None;
+        let row_height = ui.text_style_height(&egui::TextStyle::Monospace) + 8.0;
+        TableBuilder::new(ui)
+            .striped(true)
+            .columns(Column::auto().at_least(60.0), 5)
+            .column(Column::remainder())
+            .header(20.0, |mut header| {
+                for title in ["IOA", "Name", "Length", "Kind", "Time", ""] {
+                    header.col(|ui| {
+                        ui.strong(title);
+                    });
+                }
+            })
+            .body(|body| {
+                body.rows(row_height, self.files.listing.len(), |mut row| {
+                    let Some(file) = self.files.listing.get(row.index()) else {
+                        return;
+                    };
+                    let sof = file.entry.sof;
+                    let kind = match (sof.name_defines_subdirectory, sof.transfer_active) {
+                        (true, _) => "directory",
+                        (false, true) => "file (transfer active)",
+                        (false, false) => "file",
+                    };
+                    for text in [
+                        file.ioa.to_string(),
+                        file.entry.nof.value.to_string(),
+                        file.entry.lof.value.to_string(),
+                        kind.to_string(),
+                        entry_time(file),
+                    ] {
+                        row.col(|ui| {
+                            ui.monospace(text);
+                        });
+                    }
+                    row.col(|ui| {
+                        let enabled = !busy && !sof.name_defines_subdirectory;
+                        if ui
+                            .add_enabled(enabled, egui::Button::new("Download…"))
+                            .clicked()
+                        {
+                            chosen = Some((file.ioa, file.entry.nof.value));
+                        }
+                    });
+                });
+            });
+        if let Some((ioa, nof)) = chosen {
+            self.download(ioa, nof);
+        }
     }
 
     fn menu(&mut self, ui: &mut Ui) {
@@ -884,11 +1017,7 @@ impl eframe::App for App {
             .default_width(320.0)
             .show_animated(ctx, self.mode == Mode::Client, |ui| {
                 ui.heading("Send");
-                let send_ctx = commands::Context {
-                    sizes: self.sizes(),
-                    common_address: self.settings.common_address,
-                    originator: self.settings.originator,
-                };
+                let send_ctx = self.send_ctx();
                 egui::ScrollArea::vertical().show(ui, |ui| match self.forms.ui(ui, &send_ctx) {
                     Some(Ok(action)) => self.act(action),
                     Some(Err(e)) => self.status = e,
@@ -912,11 +1041,14 @@ impl eframe::App for App {
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut self.view, View::Telegrams, "Telegrams");
                 match self.mode {
-                    Mode::Client => ui.selectable_value(
-                        &mut self.view,
-                        View::Points,
-                        format!("Points ({})", self.points.rows.len()),
-                    ),
+                    Mode::Client => {
+                        ui.selectable_value(
+                            &mut self.view,
+                            View::Points,
+                            format!("Points ({})", self.points.rows.len()),
+                        );
+                        ui.selectable_value(&mut self.view, View::Files, "Files")
+                    }
                     Mode::Simulator => ui.selectable_value(
                         &mut self.view,
                         View::Station,
@@ -931,6 +1063,7 @@ impl eframe::App for App {
                     self.telegram_table(ui);
                 }
                 View::Points => self.points_table(ui),
+                View::Files => self.files_view(ui),
                 View::Station => self.station_view(ui),
             }
         });

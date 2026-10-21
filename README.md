@@ -18,6 +18,7 @@ table of the values the station reports, and sends whatever you build.
 | Telegrams | every APDU sent and received, filtered, decoded layer by layer |
 | Points | the latest value, quality and time tag of every information object |
 | Send | process, system, parameter and monitor-direction messages, or raw ASDU octets |
+| Files | the station's directory, and file downloads |
 | Station | simulator mode: the workbench is the controlled station, with points you edit and report |
 
 > [!NOTE]
@@ -57,6 +58,9 @@ What it covers:
   synchronisation, test and reset process; parameters P_ME_NA/NB/NC and
   P_AC_NA; monitor-direction values with quality flags; any cause, P/N and
   test bit; raw ASDU octets in hex with a live decode.
+- **Files**: call the station's directory, list its files and download
+  one, from the list or by address and name, with every section's and the
+  file's checksum checked.
 - **Simulator**: switch the mode to Simulator and the workbench listens as
   a controlled station, over TCP or mutual TLS. It answers interrogation,
   counter interrogation, read, clock synchronisation and test commands from
@@ -100,8 +104,8 @@ zenith-iec104's own server; no hardware is needed.
 
 Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
-Not yet in this version: file transfer workflows (the F_* types decode and
-can be sent as hex), scripting and redundancy groups.
+Not yet in this version: uploading files, serving files from the simulator,
+scripting and redundancy groups.
 
 ## Disclaimer
 

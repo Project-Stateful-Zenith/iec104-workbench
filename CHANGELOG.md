@@ -6,6 +6,14 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Files tab: call a station's directory and list its files (address, name,
+  length, kind, time), and download a file from the list or by address and
+  name. Each section's and the file's checksum is checked; a bad section is
+  asked for again. Built on zenith-iec104 0.34's `ft::receive`.
+- An opt-in test downloads a file from lib60870's file server.
+
 ## [0.3.0] - 2026-10-21
 
 ### Added
