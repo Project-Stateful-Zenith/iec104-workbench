@@ -44,9 +44,8 @@ What it covers:
   3; k, w and t0 to t3, checked against the standard's ranges; STARTDT on
   connect or manual STARTDT/STOPDT, and a redial every t0; mutual TLS 1.2
   and 1.3 with PEM certificate, key and CA, an optional revocation list
-  and peer allow-list, a version range and a handshake timeout.
-  and 1.3 with PEM certificate, key and CA; V(S), V(R) and unacknowledged
-  I-frames shown while connected.
+  and peer allow-list, a version range and a handshake timeout; V(S), V(R)
+  and unacknowledged I-frames shown while connected.
 - **Telegrams**: time, direction, type, cause, CA and a one-line decode of
   every I, S and U frame; filters by CA, object address, type, cause,
   direction and category; a detail pane and any number of detail windows
@@ -57,8 +56,9 @@ What it covers:
   count per CA and object address; export to CSV.
 - **Send**: single, double and regulating step commands, set points
   (normalized, scaled, float) and bitstrings, select or execute or both in
-  one click, QU by name, with or without CP56 time tag; interrogation, counter interrogation, read, clock
-  synchronisation, test and reset process; parameters P_ME_NA/NB/NC and
+  one click, QU by name, with or without CP56 time tag; interrogation,
+  counter interrogation, read, clock synchronisation, test and reset
+  process; parameters P_ME_NA/NB/NC and
   P_AC_NA; monitor-direction values with quality flags; any cause, P/N and
   test bit; raw ASDU octets in hex with a live decode.
 - **Files**: call the station's directory, list its files and download
