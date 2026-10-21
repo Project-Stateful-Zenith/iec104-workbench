@@ -147,7 +147,7 @@ pub const fn state_name(state: State) -> &'static str {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use std::time::{Duration, Instant};
 
     use iec104::asdu::{Quality, Value};
@@ -165,8 +165,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn interrogates_a_station() {
+    /// A station on a free local port with CA 1 and IOA 100 = scaled 42.
+    pub fn station() -> (tokio::runtime::Runtime, u16) {
         let station = tokio::runtime::Runtime::new().unwrap();
         let port = station.block_on(async {
             let config =
@@ -181,7 +181,12 @@ mod tests {
             tokio::spawn(server.serve(listener));
             port
         });
+        (station, port)
+    }
 
+    #[test]
+    fn interrogates_a_station() {
+        let (_station, port) = station();
         let settings = Settings {
             port,
             ..Settings::default()

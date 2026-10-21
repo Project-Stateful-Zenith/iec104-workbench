@@ -20,6 +20,11 @@ follow [Semantic Versioning](https://semver.org/).
   allow-list of peer certificates, the minimum and maximum TLS version and
   the handshake timeout. Profiles without them keep the previous behaviour
   (#27).
+- Scripted tests without the GUI: `iec104-workbench run <script.rhai>`
+  with `--profile`, `--log`, `--log-level` and `--record`, exit code 0 on
+  pass and 1 on failure. Scripts are Rhai and connect, send commands or raw
+  ASDUs, wait for replies and check point values; see the README and
+  `examples/smoke.rhai` (#21).
 
 ### Fixed
 
