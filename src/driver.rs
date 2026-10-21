@@ -148,7 +148,7 @@ mod tests {
     use iec104_tokio::server::{Application, PointConfig, Server, ServerConfig};
 
     use super::*;
-    use crate::commands::{Context, Forms, Tab};
+    use crate::commands::{Context, Forms, SystemKind, Tab};
     use crate::points::Points;
 
     struct Accept;
@@ -214,8 +214,27 @@ mod tests {
                 _ => {}
             }
         }
-        driver.shutdown();
         assert_eq!(points.rows[&(1, 100)].value, "42");
         assert_eq!(points.rows[&(1, 100)].cause, "inrogen");
+
+        forms.system = SystemKind::CounterInterrogation;
+        forms.qualifier = "5".into();
+        driver.send(forms.build(&ctx).unwrap());
+        let mut confirmation = None;
+        while confirmation.is_none() && Instant::now() < deadline {
+            if let Ok(Notice {
+                kind: NoticeKind::Event(Event::Asdu { asdu, .. }),
+                ..
+            }) = rx.recv_timeout(Duration::from_millis(100))
+                && let Ok(header) = iec104::asdu::Header::parse(&asdu)
+                && header.type_id == iec104::asdu::TypeId::CCiNa1
+            {
+                confirmation = Some(header);
+            }
+        }
+        driver.shutdown();
+        let header = confirmation.unwrap();
+        assert_eq!(header.cause, iec104::asdu::Cause::ActivationCon);
+        assert!(!header.negative);
     }
 }
