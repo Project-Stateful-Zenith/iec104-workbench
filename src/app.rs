@@ -5,6 +5,7 @@ use chrono::Local;
 use egui::{Context, RichText, Ui};
 use egui_extras::{Column, TableBuilder};
 use iec104::link::State;
+use iec104::redundancy::Switchover;
 use iec104_tokio::Event;
 
 use crate::commands::{self, Action, Forms};
@@ -51,9 +52,13 @@ pub struct App {
     log: Vec<String>,
     notices: mpsc::Receiver<Notice>,
     sender: mpsc::Sender<Notice>,
-    state: Option<State>,
+    /// Per connection: one, or a redundancy group's members.
+    states: Vec<Option<State>>,
+    /// The member STARTDT and STOPDT act on.
+    member: usize,
     window: Option<u16>,
-    sequence: Sequence,
+    /// Each connection's sequence numbers, by connection.
+    sequences: Vec<Sequence>,
     telegrams: Vec<Telegram>,
     shown: Vec<usize>,
     filter: Filter,
@@ -86,9 +91,10 @@ impl App {
             log: Vec::new(),
             notices,
             sender,
-            state: None,
+            states: Vec::new(),
+            member: 0,
             window: None,
-            sequence: Sequence::default(),
+            sequences: Vec::new(),
             telegrams: Vec::new(),
             shown: Vec::new(),
             matcher: filter.matcher(),
@@ -150,13 +156,23 @@ impl App {
         while let Ok(notice) = self.notices.try_recv() {
             match notice.kind {
                 NoticeKind::Event(event) => match event {
-                    Event::Sent { frame, .. } => {
-                        self.sequence.trace(Dir::Tx, &frame);
-                        self.push(Telegram::new(notice.at, Dir::Tx, frame, sizes));
+                    Event::Sent { conn, frame } => {
+                        if let Some(sequence) = self.sequences.get_mut(conn) {
+                            sequence.trace(Dir::Tx, &frame);
+                        }
+                        self.push(Telegram {
+                            conn,
+                            ..Telegram::new(notice.at, Dir::Tx, frame, sizes)
+                        });
                     }
-                    Event::Received { frame, .. } => {
-                        self.sequence.trace(Dir::Rx, &frame);
-                        self.push(Telegram::new(notice.at, Dir::Rx, frame, sizes));
+                    Event::Received { conn, frame } => {
+                        if let Some(sequence) = self.sequences.get_mut(conn) {
+                            sequence.trace(Dir::Rx, &frame);
+                        }
+                        self.push(Telegram {
+                            conn,
+                            ..Telegram::new(notice.at, Dir::Rx, frame, sizes)
+                        });
                     }
                     Event::Asdu { asdu, .. } => {
                         for reply in self.files.on_asdu(&asdu) {
@@ -167,34 +183,79 @@ impl App {
                         self.confirm(&asdu);
                         self.points.apply(&asdu, sizes, notice.at);
                     }
-                    Event::State { state, .. } => self.state = Some(state),
-                    Event::Connecting { .. } => {
-                        self.status = format!("connecting to {}", self.settings.address());
+                    Event::State { conn, state } => {
+                        if let Some(slot) = self.states.get_mut(conn) {
+                            *slot = Some(state);
+                        }
                     }
-                    Event::Connected { .. } => {
-                        self.sequence = Sequence::default();
-                        self.status = "connected".into();
+                    Event::Connecting { conn } => {
+                        let address = self.settings.addresses().get(conn).cloned();
+                        self.status = format!(
+                            "{}connecting to {}",
+                            self.prefix(conn),
+                            address.unwrap_or_default()
+                        );
                     }
-                    Event::ConnectFailed { error, .. } => {
-                        self.status = format!("connect failed: {error}");
+                    Event::Connected { conn } => {
+                        // A new connection is stopped (5.3) without a State event.
+                        if let Some(slot) = self.states.get_mut(conn) {
+                            *slot = Some(State::Stopped);
+                        }
+                        // Sequence numbers start at 0 on every connection (5.1).
+                        if let Some(sequence) = self.sequences.get_mut(conn) {
+                            *sequence = Sequence::default();
+                        }
+                        self.status = format!("{}connected", self.prefix(conn));
                     }
-                    Event::Disconnected { reason, .. } => {
-                        self.state = None;
-                        self.window = None;
-                        self.sequence = Sequence::default();
-                        self.status = format!("disconnected: {reason}");
+                    Event::ConnectFailed { conn, error } => {
+                        self.status = format!("{}connect failed: {error}", self.prefix(conn));
+                    }
+                    Event::Disconnected { conn, reason } => {
+                        if let Some(slot) = self.states.get_mut(conn) {
+                            *slot = None;
+                        }
+                        self.status = format!("{}disconnected: {reason}", self.prefix(conn));
                         // The station does not resume a transfer or a select
                         // on the next connection.
-                        self.pending = None;
-                        if self.files.busy() {
-                            self.files.cancel();
-                            self.files.status = format!("stopped, connection lost: {reason}");
+                        if !self.states.contains(&Some(State::Started)) {
+                            self.window = None;
+                            self.pending = None;
+                            if self.files.busy() {
+                                self.files.cancel();
+                                self.files.status = format!("stopped, connection lost: {reason}");
+                            }
                         }
+                    }
+                    Event::Switchover(switchover) => {
+                        self.status = match switchover {
+                            Switchover::Automatic {
+                                failed, started, ..
+                            } => {
+                                format!(
+                                    "switchover: conn {failed} failed (t1), conn {started} started"
+                                )
+                            }
+                            Switchover::NoStoppedConnection { failed, .. } => format!(
+                                "switchover: conn {failed} failed (t1), no stopped connection to start"
+                            ),
+                            Switchover::LeftToTheControllingStation { failed, .. } => {
+                                format!("switchover: conn {failed} failed (t1)")
+                            }
+                        };
+                    }
+                    Event::StartedConnectionFailed { conn, unconfirmed } => {
+                        self.status = if unconfirmed > 0 {
+                            format!(
+                                "started conn {conn} failed; its {unconfirmed} unconfirmed ASDUs go again on the next started connection"
+                            )
+                        } else {
+                            format!("started conn {conn} failed")
+                        };
                     }
                     _ => {}
                 },
                 NoticeKind::Window(room) => self.window = Some(room),
-                NoticeKind::Error(e) => self.status = e,
+                NoticeKind::Error(e) | NoticeKind::Status(e) => self.status = e,
                 NoticeKind::Log(line) => {
                     self.log
                         .push(format!("{} {line}", notice.at.format("%T%.3f")));
@@ -260,8 +321,22 @@ impl App {
         match Driver::connect(&self.settings, self.sender.clone(), move || {
             wake.request_repaint();
         }) {
-            Ok(driver) => self.driver = Some(driver),
+            Ok(driver) => {
+                self.driver = Some(driver);
+                self.states = vec![None; self.settings.addresses().len()];
+                self.sequences = vec![Sequence::default(); self.states.len()];
+                self.member = 0;
+            }
             Err(e) => self.status = e,
+        }
+    }
+
+    /// Names the connection in a status line when there are several.
+    fn prefix(&self, conn: usize) -> String {
+        if self.states.len() > 1 {
+            format!("conn {conn}: ")
+        } else {
+            String::new()
         }
     }
 
@@ -269,7 +344,8 @@ impl App {
         if let Some(driver) = self.driver.take() {
             driver.shutdown();
         }
-        self.state = None;
+        self.states.clear();
+        self.sequences.clear();
         self.window = None;
         self.status = "disconnected".into();
     }
@@ -336,22 +412,54 @@ impl App {
                 self.connect(ctx);
             }
             if let Some(driver) = &self.driver {
+                if self.states.len() > 1 {
+                    egui::ComboBox::from_id_salt("member")
+                        .width(60.0)
+                        .selected_text(format!("conn {}", self.member))
+                        .show_ui(ui, |ui| {
+                            for conn in 0..self.states.len() {
+                                ui.selectable_value(&mut self.member, conn, format!("conn {conn}"));
+                            }
+                        })
+                        .response
+                        .on_hover_text(
+                            "STARTDT on a stopped member is a switchover: the others are closed",
+                        );
+                }
                 if ui.button("STARTDT").clicked() {
-                    driver.start();
+                    driver.start(self.member);
                 }
                 if ui.button("STOPDT").clicked() {
-                    driver.stop();
+                    driver.stop(self.member);
                 }
             }
             if ui.button("Settings…").clicked() {
                 self.show_settings = !self.show_settings;
             }
             ui.separator();
-            let state = self.state.map_or("—", state_name);
-            ui.label(format!("State: {state}"));
+            let name = |state: Option<State>| state.map_or("—", state_name);
+            if self.states.len() > 1 {
+                let states: Vec<_> = self
+                    .states
+                    .iter()
+                    .enumerate()
+                    .map(|(conn, &state)| format!("conn {conn}: {}", name(state)))
+                    .collect();
+                ui.label(states.join(", "));
+            } else {
+                ui.label(format!(
+                    "State: {}",
+                    name(self.states.first().copied().flatten())
+                ));
+            }
             if let Some(room) = self.window {
                 ui.label(format!("k room: {room}/{}", self.settings.k));
-                let seq = self.sequence;
+                let started = self
+                    .states
+                    .iter()
+                    .position(|state| *state == Some(State::Started))
+                    .unwrap_or(0);
+                let seq = self.sequences.get(started).copied().unwrap_or_default();
                 ui.label(format!(
                     "V(S) {}  V(R) {}  unacknowledged {}",
                     seq.send.get(),
@@ -864,6 +972,30 @@ impl App {
                         ui.label("STARTDT on connect");
                         ui.checkbox(&mut s.auto_start, "");
                         ui.end_row();
+                        ui.label("Redundant connections");
+                        ui.vertical(|ui| {
+                            let mut remove = None;
+                            for (i, address) in s.redundant.iter_mut().enumerate() {
+                                ui.horizontal(|ui| {
+                                    ui.label(format!("conn {}", i.saturating_add(1)));
+                                    ui.add(
+                                        egui::TextEdit::singleline(address)
+                                            .hint_text("host:port")
+                                            .desired_width(140.0),
+                                    );
+                                    if ui.button("Remove").clicked() {
+                                        remove = Some(i);
+                                    }
+                                });
+                            }
+                            if let Some(i) = remove {
+                                s.redundant.remove(i);
+                            }
+                            if ui.button("Add").clicked() {
+                                s.redundant.push(s.address());
+                            }
+                        });
+                        ui.end_row();
                         ui.label("TLS");
                         ui.checkbox(&mut s.tls.enabled, "mutual TLS");
                         ui.end_row();
@@ -969,6 +1101,7 @@ impl App {
             .sense(egui::Sense::click())
             .column(Column::auto().at_least(100.0))
             .column(Column::auto().at_least(28.0))
+            .column(Column::auto().at_least(28.0))
             .column(Column::auto().at_least(90.0))
             .column(Column::auto().at_least(60.0))
             .column(Column::auto().at_least(40.0))
@@ -979,7 +1112,7 @@ impl App {
         }
         table
             .header(20.0, |mut header| {
-                for title in ["Time", "Dir", "Type", "Cause", "CA", "Summary"] {
+                for title in ["Time", "Dir", "Conn", "Type", "Cause", "CA", "Summary"] {
                     header.col(|ui| {
                         ui.strong(title);
                     });
@@ -1003,6 +1136,9 @@ impl App {
                             Dir::Rx => egui::Color32::from_rgb(60, 170, 90),
                         };
                         ui.label(RichText::new(t.dir.label()).color(color).monospace());
+                    });
+                    row.col(|ui| {
+                        ui.monospace(t.conn.to_string());
                     });
                     row.col(|ui| {
                         ui.monospace(t.header.map_or("", |h| h.type_id.name()));
