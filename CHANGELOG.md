@@ -10,6 +10,8 @@ follow [Semantic Versioning](https://semver.org/).
 
 - Simulator points carry the NT, SB, BL and OV quality flags besides IV,
   set in the Station table's Quality column and kept in profiles (#24).
+- The connection bar shows V(S), V(R) and the number of sent I-frames not
+  yet acknowledged, followed from the traced frames (#22).
 
 ### Fixed
 
