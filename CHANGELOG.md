@@ -25,6 +25,8 @@ follow [Semantic Versioning](https://semver.org/).
   pass and 1 on failure. Scripts are Rhai and connect, send commands or raw
   ASDUs, wait for replies and check point values; see the README and
   `examples/smoke.rhai` (#21).
+- The connection bar shows V(S), V(R) and the number of sent I-frames not
+  yet acknowledged, followed from the traced frames (#22).
 
 ### Fixed
 

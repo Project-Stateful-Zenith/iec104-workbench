@@ -4,6 +4,7 @@ mod app;
 mod commands;
 mod driver;
 mod files;
+mod link;
 mod points;
 mod script;
 mod settings;
