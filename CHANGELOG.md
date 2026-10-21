@@ -8,6 +8,8 @@ follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A file transfer and a pending select + execute stop when the connection
+  drops; the Files tab stayed busy until Cancel (#6).
 - Recordings keep their address sizes (`# sizes` lines), and every
   telegram keeps the sizes it was read with: a recording opened under other
   settings, or a telegram shown after the settings changed, was decoded with
