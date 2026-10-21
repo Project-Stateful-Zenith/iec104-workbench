@@ -52,8 +52,8 @@ What it covers:
 - **Points**: value, quality (IV NT SB BL OV), time tag, cause and update
   count per CA and object address; export to CSV.
 - **Send**: single, double and regulating step commands, set points
-  (normalized, scaled, float) and bitstrings, select or execute, with or
-  without CP56 time tag; interrogation, counter interrogation, read, clock
+  (normalized, scaled, float) and bitstrings, select or execute or both in
+  one click, QU by name, with or without CP56 time tag; interrogation, counter interrogation, read, clock
   synchronisation, test and reset process; parameters P_ME_NA/NB/NC and
   P_AC_NA; monitor-direction values with quality flags; any cause, P/N and
   test bit; raw ASDU octets in hex with a live decode.
@@ -61,8 +61,8 @@ What it covers:
   a controlled station, over TCP or mutual TLS. It answers interrogation,
   counter interrogation, read, clock synchronisation and test commands from
   its points, sends a value you edit as a spontaneous event, takes commands
-  on the points you mark, and can echo a command's result as return
-  information. Every frame goes to the telegram list.
+  on the points you mark (directly or by select and execute), and can echo
+  a command's result as return information. Every frame goes to the telegram list.
 - **Profiles**: all settings, simulator points included, saved and loaded
   as TOML; the last ones are remembered.
 

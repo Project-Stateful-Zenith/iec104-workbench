@@ -194,11 +194,13 @@ fn object_addresses(asdu: &[u8], sizes: AddressSizes) -> Vec<u32> {
 }
 
 pub fn cause_name(cause: asdu::Cause) -> String {
-    let mnemonic = cause.mnemonic();
-    if mnemonic.is_empty() {
-        format!("{cause:?}")
-    } else {
-        mnemonic.into()
+    match cause {
+        asdu::Cause::UnknownTypeId => "unk type".into(),
+        asdu::Cause::UnknownCause => "unk cause".into(),
+        asdu::Cause::UnknownCommonAddress => "unk CA".into(),
+        asdu::Cause::UnknownInformationObjectAddress => "unk IOA".into(),
+        _ if cause.mnemonic().is_empty() => format!("{cause:?}"),
+        _ => cause.mnemonic().into(),
     }
 }
 

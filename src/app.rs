@@ -1,4 +1,5 @@
 use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 use chrono::Local;
 use egui::{Context, RichText, Ui};
@@ -6,7 +7,7 @@ use egui_extras::{Column, TableBuilder};
 use iec104::link::State;
 use iec104_tokio::Event;
 
-use crate::commands::{self, Forms};
+use crate::commands::{self, Action, Forms};
 use crate::driver::{Driver, Notice, NoticeKind, state_name};
 use crate::points::Points;
 use crate::settings::Settings;
@@ -22,6 +23,15 @@ enum View {
     Station,
 }
 
+/// A select sent by "Select + execute", waiting for its confirmation.
+struct Pending {
+    type_id: u8,
+    ioa: u32,
+    execute: Vec<u8>,
+    sent: Instant,
+    timeout: Duration,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {
     Client,
@@ -33,6 +43,7 @@ pub struct App {
     mode: Mode,
     driver: Option<Driver>,
     simulator: Option<Simulator>,
+    pending: Option<Pending>,
     log: Vec<String>,
     notices: mpsc::Receiver<Notice>,
     sender: mpsc::Sender<Notice>,
@@ -65,6 +76,7 @@ impl App {
             mode: Mode::Client,
             driver: None,
             simulator: None,
+            pending: None,
             log: Vec::new(),
             notices,
             sender,
@@ -120,7 +132,10 @@ impl App {
                     Event::Received { frame, .. } => {
                         self.push(Telegram::new(notice.at, Dir::Rx, frame, sizes));
                     }
-                    Event::Asdu { asdu, .. } => self.points.apply(&asdu, sizes, notice.at),
+                    Event::Asdu { asdu, .. } => {
+                        self.confirm(&asdu);
+                        self.points.apply(&asdu, sizes, notice.at);
+                    }
                     Event::State { state, .. } => self.state = Some(state),
                     Event::Connecting { .. } => {
                         self.status = format!("connecting to {}", self.settings.address());
@@ -147,6 +162,53 @@ impl App {
                         point.value = value_text(&value);
                     }
                 }
+            }
+        }
+    }
+
+    fn confirm(&mut self, asdu: &[u8]) {
+        let sizes = self.sizes();
+        let Some(pending) = &self.pending else {
+            return;
+        };
+        let Some(positive) = commands::confirmation(asdu, sizes, pending.type_id, pending.ioa)
+        else {
+            return;
+        };
+        let ioa = pending.ioa;
+        if let Some(pending) = self.pending.take()
+            && positive
+            && let Some(driver) = &self.driver
+        {
+            driver.send(pending.execute);
+            self.status = format!("IOA {ioa} selected, execute sent");
+        } else {
+            self.status = format!("IOA {ioa}: select refused by the station, not executed");
+        }
+    }
+
+    fn act(&mut self, action: Action) {
+        let Some(driver) = &self.driver else {
+            self.status = "not connected".into();
+            return;
+        };
+        match action {
+            Action::Send(asdu) => driver.send(asdu),
+            Action::SelectExecute {
+                select,
+                execute,
+                type_id,
+                ioa,
+            } => {
+                driver.send(select);
+                self.pending = Some(Pending {
+                    type_id,
+                    ioa,
+                    execute,
+                    sent: Instant::now(),
+                    timeout: Duration::from_secs(self.settings.t1),
+                });
+                self.status = format!("IOA {ioa}: select sent, waiting for confirmation");
             }
         }
     }
@@ -267,6 +329,7 @@ impl App {
             ui.label("CA");
             ui.add(egui::DragValue::new(&mut self.settings.common_address));
             ui.checkbox(&mut self.settings.echo, "Echo commands");
+            ui.checkbox(&mut self.settings.select_before_execute, "Require select");
         });
         if running {
             if ui.button("Stop").clicked() {
@@ -622,6 +685,7 @@ impl App {
         let mut opened = None;
         // Selectable labels would take the clicks meant for the row.
         ui.style_mut().interaction.selectable_labels = false;
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
         let row_height = ui.text_style_height(&egui::TextStyle::Monospace) + 4.0;
         let mut table = TableBuilder::new(ui)
             .striped(true)
@@ -654,7 +718,6 @@ impl App {
                     };
                     row.set_selected(self.selected == Some(index));
                     row.col(|ui| {
-                        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
                         ui.monospace(t.at.format("%T%.3f").to_string());
                     });
                     row.col(|ui| {
@@ -793,6 +856,17 @@ impl eframe::App for App {
 
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
         self.drain();
+        if let Some(pending) = &self.pending {
+            if pending.sent.elapsed() >= pending.timeout {
+                self.status = format!(
+                    "IOA {}: no select confirmation within t1, not executed",
+                    pending.ioa
+                );
+                self.pending = None;
+            } else {
+                ctx.request_repaint_after(Duration::from_millis(250));
+            }
+        }
         egui::TopBottomPanel::top("menu").show(ctx, |ui| {
             self.menu(ui);
             self.connection_bar(ui, ctx);
@@ -816,10 +890,7 @@ impl eframe::App for App {
                     originator: self.settings.originator,
                 };
                 egui::ScrollArea::vertical().show(ui, |ui| match self.forms.ui(ui, &send_ctx) {
-                    Some(Ok(asdu)) => match &self.driver {
-                        Some(driver) => driver.send(asdu),
-                        None => self.status = "not connected".into(),
-                    },
+                    Some(Ok(action)) => self.act(action),
                     Some(Err(e)) => self.status = e,
                     None => {}
                 });

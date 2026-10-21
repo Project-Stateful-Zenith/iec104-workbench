@@ -5,7 +5,7 @@ use std::sync::{Arc, OnceLock};
 use std::task::{Context, Poll};
 
 use iec104::asdu::{Cause, DoubleCommandState, DoublePointState, Nva, Quality, Value};
-use iec104::ct::{Command, CommandValue, Family};
+use iec104::ct::{Command, CommandMode, CommandValue, Family};
 use iec104_tls::TlsConfig;
 use iec104_tokio::Event;
 use iec104_tokio::server::{Application, PointConfig, Server, ServerConfig};
@@ -247,6 +247,9 @@ impl Simulator {
         let mut config = ServerConfig::new(settings.common_address);
         config.sizes = settings.sizes()?;
         config.link = settings.link()?;
+        if settings.select_before_execute {
+            config.command_mode = CommandMode::SelectAndExecute;
+        }
         for point in &settings.station {
             let mut pc = PointConfig::new(point.parse()?).with_quality(point.quality());
             if point.group > 0 {
@@ -462,6 +465,87 @@ mod tests {
     use crate::commands::{Context as SendContext, Forms, SystemKind, Tab};
     use crate::driver::Driver;
     use crate::points::Points;
+
+    #[test]
+    fn select_before_execute() {
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let settings = Settings {
+            port,
+            station: vec![SimPoint {
+                commands: true,
+                ..SimPoint::new(20)
+            }],
+            select_before_execute: true,
+            ..Settings::default()
+        };
+        let (station_tx, _station_rx) = mpsc::channel();
+        let simulator = Simulator::start(&settings, true, station_tx, || {}).unwrap();
+        let (tx, rx) = mpsc::channel();
+        let driver = Driver::connect(&settings, tx, || {}).unwrap();
+        let ctx = SendContext {
+            sizes: settings.sizes().unwrap(),
+            common_address: settings.common_address,
+            originator: 0,
+        };
+        let mut forms = Forms {
+            ioa: "20".into(),
+            ..Forms::default()
+        };
+        let direct = forms.build(&ctx).unwrap();
+        let Ok(crate::commands::Action::SelectExecute {
+            select,
+            execute,
+            type_id,
+            ioa,
+        }) = forms.select_execute(&ctx)
+        else {
+            panic!()
+        };
+
+        let mut confirmations = Vec::new();
+        let mut returned = false;
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !returned && Instant::now() < deadline {
+            let Ok(notice) = rx.recv_timeout(Duration::from_millis(100)) else {
+                continue;
+            };
+            match notice.kind {
+                NoticeKind::Event(Event::State {
+                    state: State::Started,
+                    ..
+                }) => {
+                    driver.send(direct.clone());
+                }
+                NoticeKind::Event(Event::Asdu { asdu, .. }) => {
+                    if let Some(positive) =
+                        crate::commands::confirmation(&asdu, ctx.sizes, type_id, ioa)
+                    {
+                        confirmations.push(positive);
+                        match confirmations.len() {
+                            1 => driver.send(select.clone()),
+                            2 => driver.send(execute.clone()),
+                            _ => {}
+                        }
+                    }
+                    let mut points = Points::default();
+                    points.apply(&asdu, ctx.sizes, notice.at);
+                    returned = points
+                        .rows
+                        .get(&(1, 20))
+                        .is_some_and(|r| r.cause == "retrem");
+                }
+                _ => {}
+            }
+        }
+        driver.shutdown();
+        simulator.shutdown();
+        assert_eq!(confirmations, [false, true, true]);
+        assert!(returned);
+    }
 
     #[test]
     fn client_talks_to_simulator() {

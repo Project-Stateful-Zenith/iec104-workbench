@@ -30,6 +30,8 @@ pub struct Settings {
     pub station: Vec<SimPoint>,
     /// Simulator: report a commanded point's new value as return information.
     pub echo: bool,
+    /// Simulator: commands need a select before the execute.
+    pub select_before_execute: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -63,6 +65,7 @@ impl Default for Settings {
             tls: Tls::default(),
             station: (1..=3).map(SimPoint::new).collect(),
             echo: true,
+            select_before_execute: false,
         }
     }
 }

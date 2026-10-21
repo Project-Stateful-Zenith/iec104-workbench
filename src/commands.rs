@@ -14,6 +14,17 @@ use iec104::asdu::{
     R32, Rco, RegulatingStepState, Sco, Siq, Sva, Tsc, Vti,
 };
 
+pub enum Action {
+    Send(Vec<u8>),
+    /// Send `select`, then `execute` once the station confirms the select.
+    SelectExecute {
+        select: Vec<u8>,
+        execute: Vec<u8>,
+        type_id: u8,
+        ioa: u32,
+    },
+}
+
 pub struct Context {
     pub sizes: AddressSizes,
     pub common_address: u16,
@@ -162,6 +173,43 @@ const MONITOR: [(MonitorKind, &str); 8] = [
     (MonitorKind::Counter, "Integrated total (M_IT)"),
 ];
 
+const QU: [(&str, &str); 4] = [
+    ("0", "0 no additional definition"),
+    ("1", "1 short pulse"),
+    ("2", "2 long pulse"),
+    ("3", "3 persistent output"),
+];
+
+fn qu_ui(ui: &mut Ui, text: &mut String) {
+    let named = QU
+        .iter()
+        .find(|(v, _)| *v == text.trim())
+        .map(|(_, label)| *label);
+    ui.horizontal(|ui| {
+        ui.label("QU");
+        egui::ComboBox::from_id_salt("qu")
+            .selected_text(named.unwrap_or("custom"))
+            .width(200.0)
+            .show_ui(ui, |ui| {
+                for (value, label) in QU {
+                    if ui.selectable_label(named == Some(label), label).clicked() {
+                        *text = value.into();
+                    }
+                }
+                if ui
+                    .selectable_label(named.is_none(), "custom (4–31)")
+                    .clicked()
+                    && named.is_some()
+                {
+                    *text = "16".into();
+                }
+            });
+        if named.is_none() {
+            ui.add(egui::TextEdit::singleline(text).desired_width(40.0));
+        }
+    });
+}
+
 const FREEZE: [(FreezeMode, &str); 4] = [
     (FreezeMode::Read, "read"),
     (FreezeMode::FreezeWithoutReset, "freeze"),
@@ -235,7 +283,7 @@ fn now() -> Result<Cp56Time2a, String> {
 }
 
 impl Forms {
-    pub fn ui(&mut self, ui: &mut Ui, ctx: &Context) -> Option<Result<Vec<u8>, String>> {
+    pub fn ui(&mut self, ui: &mut Ui, ctx: &Context) -> Option<Result<Action, String>> {
         ui.horizontal_wrapped(|ui| {
             for (tab, label) in [
                 (Tab::Process, "Process"),
@@ -255,7 +303,7 @@ impl Forms {
         });
         ui.separator();
         if self.tab == Tab::Manual {
-            return self.manual_ui(ui, ctx);
+            return self.manual_ui(ui, ctx).map(|r| r.map(Action::Send));
         }
         self.fields_ui(ui);
         ui.horizontal(|ui| {
@@ -266,7 +314,36 @@ impl Forms {
             ui.checkbox(&mut self.negative, "P/N negative");
             ui.checkbox(&mut self.test, "Test");
         });
-        ui.button("Send").clicked().then(|| self.build(ctx))
+        ui.horizontal(|ui| {
+            let send = ui.button("Send").clicked();
+            let select_execute = self.tab == Tab::Process
+                && self.process != ProcessKind::Bitstring
+                && ui.button("Select + execute").clicked();
+            if select_execute {
+                Some(self.select_execute(ctx))
+            } else if send {
+                Some(self.build(ctx).map(Action::Send))
+            } else {
+                None
+            }
+        })
+        .inner
+    }
+
+    pub fn select_execute(&mut self, ctx: &Context) -> Result<Action, String> {
+        let chosen = self.select;
+        self.select = true;
+        let select = self.build(ctx);
+        self.select = false;
+        let execute = self.build(ctx);
+        self.select = chosen;
+        let select = select?;
+        Ok(Action::SelectExecute {
+            type_id: select.first().copied().unwrap_or_default(),
+            ioa: parse(&self.ioa, "IOA")?,
+            select,
+            execute: execute?,
+        })
     }
 
     const fn default_qualifier(&self) -> &'static str {
@@ -300,8 +377,12 @@ impl Forms {
                     ProcessKind::Normalized | ProcessKind::Scaled | ProcessKind::Float => "QL",
                     _ => "QU",
                 };
-                if self.process != ProcessKind::Bitstring {
+                if label == "QU" && self.process != ProcessKind::Bitstring {
+                    qu_ui(ui, &mut self.qualifier);
+                } else if self.process != ProcessKind::Bitstring {
                     field(ui, label, &mut self.qualifier);
+                }
+                if self.process != ProcessKind::Bitstring {
                     ui.checkbox(&mut self.select, "Select (else execute)");
                 }
                 ui.checkbox(&mut self.time_tag, "With CP56 time tag");
@@ -618,6 +699,25 @@ impl Forms {
     }
 }
 
+/// `Some(positive)` when `asdu` answers a command of `type_id` to `ioa`: its
+/// activation confirmation, or its mirror with cause 44 to 47.
+pub fn confirmation(asdu: &[u8], sizes: AddressSizes, type_id: u8, ioa: u32) -> Option<bool> {
+    let header = Header::parse_with(asdu, sizes).ok()?;
+    let objects = asdu.get(sizes.header_len()..)?;
+    let answer = matches!(
+        header.cause,
+        Cause::ActivationCon
+            | Cause::UnknownTypeId
+            | Cause::UnknownCause
+            | Cause::UnknownCommonAddress
+            | Cause::UnknownInformationObjectAddress
+    );
+    let matches = answer
+        && header.type_id.to_u8() == type_id
+        && iec104::asdu::read_ioa_with(objects, sizes).ok()? == ioa;
+    matches.then_some(header.cause == Cause::ActivationCon && !header.negative)
+}
+
 fn hex_u32(text: &str) -> Result<u32, String> {
     let digits = text
         .trim()
@@ -707,6 +807,43 @@ mod tests {
             forms.build(&ctx).unwrap(),
             [0x64, 0x01, 0x06, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x14]
         );
+    }
+
+    #[test]
+    fn select_then_execute() {
+        let mut forms = Forms {
+            ioa: "4001".into(),
+            ..Forms::default()
+        };
+        let Ok(Action::SelectExecute {
+            select,
+            execute,
+            type_id,
+            ioa,
+        }) = forms.select_execute(&CTX)
+        else {
+            panic!()
+        };
+        assert_eq!((type_id, ioa), (45, 4001));
+        assert!(!forms.select);
+        let Objects::CScNa1(s) = decode(&select).unwrap().objects else {
+            panic!()
+        };
+        let Objects::CScNa1(e) = decode(&execute).unwrap().objects else {
+            panic!()
+        };
+        assert!(s[0].value.sco.qoc.select && !e[0].value.sco.qoc.select);
+
+        let mut confirmed = select;
+        confirmed[2] = 7;
+        assert_eq!(confirmation(&confirmed, CTX.sizes, 45, 4001), Some(true));
+        assert_eq!(confirmation(&confirmed, CTX.sizes, 45, 4002), None);
+        confirmed[2] = 0x47;
+        assert_eq!(confirmation(&confirmed, CTX.sizes, 45, 4001), Some(false));
+        confirmed[2] = 0x6F;
+        assert_eq!(confirmation(&confirmed, CTX.sizes, 45, 4001), Some(false));
+        confirmed[2] = 6;
+        assert_eq!(confirmation(&confirmed, CTX.sizes, 45, 4001), None);
     }
 
     #[test]

@@ -6,6 +6,23 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Select + execute: one click sends the select, waits for the station's
+  confirmation and sends the execute. A negative confirmation, a cause 44
+  to 47 mirror or no answer within t1 stops it, with the reason in the
+  status bar.
+- The qualifier of command (QU) is chosen by name: no additional
+  definition, short pulse, long pulse or persistent output; other values up
+  to 31 are typed in.
+- Simulator: *Require select* makes the station accept commands only by
+  select and execute.
+
+### Changed
+
+- Causes 44 to 47 show as `unk type`, `unk cause`, `unk CA` and `unk IOA`
+  in the telegram list.
+
 ## [0.2.0] - 2026-10-21
 
 ### Added
