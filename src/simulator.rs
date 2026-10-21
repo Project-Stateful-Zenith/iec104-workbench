@@ -1,4 +1,5 @@
 use std::io;
+use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::mpsc;
 use std::sync::{Arc, OnceLock};
@@ -11,7 +12,7 @@ use iec104_tokio::Event;
 use iec104_tokio::server::{Application, PointConfig, Server, ServerConfig};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
 use tokio::runtime::Runtime;
 
 use crate::driver::{Notice, NoticeKind};
@@ -331,10 +332,6 @@ async fn serve(
     notices: mpsc::Sender<Notice>,
     wake: Wake,
 ) {
-    let log = |line: String| {
-        let _ = notices.send(Notice::now(NoticeKind::Log(line)));
-        wake();
-    };
     loop {
         let Ok((tcp, peer)) = listener.accept().await else {
             // A lasting error (out of file descriptors) would otherwise spin.
@@ -342,28 +339,49 @@ async fn serve(
             continue;
         };
         let _ = tcp.set_nodelay(true);
-        let attached = match &tls {
-            Some(config) => match iec104_tls::tokio::accept(tcp, config).await {
-                Ok(stream) => {
-                    server
-                        .attach(Tap::new(stream, notices.clone(), Arc::clone(&wake)))
-                        .await
-                }
-                Err(e) => {
-                    log(format!("{peer}: TLS handshake failed: {e}"));
-                    continue;
-                }
-            },
-            None => {
+        // Each in its own task: a client that stalls its TLS handshake must
+        // not hold off the next connection.
+        tokio::spawn(admit(
+            tcp,
+            peer,
+            server.clone(),
+            tls.clone(),
+            notices.clone(),
+            Arc::clone(&wake),
+        ));
+    }
+}
+
+async fn admit(
+    tcp: TcpStream,
+    peer: SocketAddr,
+    server: Server,
+    tls: Option<TlsConfig>,
+    notices: mpsc::Sender<Notice>,
+    wake: Wake,
+) {
+    let log = |line: String| {
+        let _ = notices.send(Notice::now(NoticeKind::Log(line)));
+        wake();
+    };
+    let attached = match &tls {
+        Some(config) => match iec104_tls::tokio::accept(tcp, config).await {
+            Ok(stream) => {
                 server
-                    .attach(Tap::new(tcp, notices.clone(), Arc::clone(&wake)))
+                    .attach(Tap::new(stream, notices.clone(), Arc::clone(&wake)))
                     .await
             }
-        };
-        match attached {
-            Ok(_) => log(format!("{peer} connected")),
-            Err(e) => log(format!("{peer} refused: {e}")),
+            Err(e) => return log(format!("{peer}: TLS handshake failed: {e}")),
+        },
+        None => {
+            server
+                .attach(Tap::new(tcp, notices.clone(), Arc::clone(&wake)))
+                .await
         }
+    };
+    match attached {
+        Ok(_) => log(format!("{peer} connected")),
+        Err(e) => log(format!("{peer} refused: {e}")),
     }
 }
 
@@ -630,6 +648,82 @@ mod tests {
         let _ = std::fs::remove_file(&source);
         let _ = std::fs::remove_file(&target);
         assert_eq!(fetched, content, "{}", files.status);
+    }
+
+    /// Mutual TLS with a throwaway CA, and a first client that connects but
+    /// never starts its handshake: the second must not wait for the first's
+    /// handshake timeout (10 s).
+    #[test]
+    fn a_stalled_tls_handshake_does_not_block_the_next_client() {
+        use rcgen::{
+            BasicConstraints, CertificateParams, DnType, ExtendedKeyUsagePurpose, IsCa, Issuer,
+            KeyPair, KeyUsagePurpose,
+        };
+
+        let ca_key = KeyPair::generate().unwrap();
+        let mut ca = CertificateParams::new(Vec::<String>::new()).unwrap();
+        ca.distinguished_name.push(DnType::CommonName, "test CA");
+        ca.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+        ca.key_usages = vec![
+            KeyUsagePurpose::KeyCertSign,
+            KeyUsagePurpose::DigitalSignature,
+        ];
+        let ca_pem = ca.self_signed(&ca_key).unwrap().pem();
+        let issuer = Issuer::new(ca, ca_key);
+        let key = KeyPair::generate().unwrap();
+        let mut leaf = CertificateParams::new(vec!["127.0.0.1".to_string()]).unwrap();
+        leaf.extended_key_usages = vec![
+            ExtendedKeyUsagePurpose::ServerAuth,
+            ExtendedKeyUsagePurpose::ClientAuth,
+        ];
+        let leaf_pem = leaf.signed_by(&key, &issuer).unwrap().pem();
+        let dir = std::env::temp_dir().join(format!("iec104-workbench-tls-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = |name: &str, text: &str| {
+            let path = dir.join(name);
+            std::fs::write(&path, text).unwrap();
+            path.display().to_string()
+        };
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let mut settings = Settings {
+            port,
+            ..Settings::default()
+        };
+        settings.tls.enabled = true;
+        settings.tls.ca = file("ca.pem", &ca_pem);
+        settings.tls.certificate = file("cert.pem", &leaf_pem);
+        settings.tls.key = file("key.pem", &key.serialize_pem());
+
+        let (station_tx, _station_rx) = mpsc::channel();
+        let simulator = Simulator::start(&settings, true, station_tx, || {}).unwrap();
+        let _stalled = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+
+        let began = Instant::now();
+        let (tx, rx) = mpsc::channel();
+        let driver = Driver::connect(&settings, tx, || {}).unwrap();
+        let mut started = false;
+        while !started && began.elapsed() < Duration::from_secs(5) {
+            if let Ok(Notice {
+                kind:
+                    NoticeKind::Event(Event::State {
+                        state: State::Started,
+                        ..
+                    }),
+                ..
+            }) = rx.recv_timeout(Duration::from_millis(100))
+            {
+                started = true;
+            }
+        }
+        driver.shutdown();
+        simulator.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(started, "the TLS client started data transfer within 5 s");
     }
 
     #[test]
