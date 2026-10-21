@@ -4,6 +4,11 @@ A cross-platform desktop test client for IEC 60870-5-104 stations. It connects t
 
 One self-contained binary for Windows, macOS and Linux: no runtime, no OpenSSL, no GTK. The protocol is [zenith-iec104](https://github.com/Project-Stateful-Zenith/zenith-iec104); the GUI is [egui](https://github.com/emilk/egui).
 
+> [!NOTE]
+> This repository is a clone of an internal production repository. It may
+> lag behind the internal one in releases and patches, though we try to
+> patch issues here that we catch internally.
+
 ## Features
 
 **Connection**
