@@ -45,6 +45,8 @@ What it covers:
   connect or manual STARTDT/STOPDT, and a redial every t0; mutual TLS 1.2
   and 1.3 with PEM certificate, key and CA, an optional revocation list
   and peer allow-list, a version range and a handshake timeout.
+  and 1.3 with PEM certificate, key and CA; V(S), V(R) and unacknowledged
+  I-frames shown while connected.
 - **Telegrams**: time, direction, type, cause, CA and a one-line decode of
   every I, S and U frame; filters by CA, object address, type, cause,
   direction and category; a detail pane and any number of detail windows

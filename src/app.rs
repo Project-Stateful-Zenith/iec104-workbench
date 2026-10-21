@@ -10,6 +10,7 @@ use iec104_tokio::Event;
 use crate::commands::{self, Action, Forms};
 use crate::driver::{Driver, Notice, NoticeKind, state_name};
 use crate::files::{Files, entry_time};
+use crate::link::Sequence;
 use crate::points::Points;
 use crate::settings::{Settings, TlsVersion};
 use crate::simulator::{Kind, ServedFile, SimPoint, Simulator, value_text};
@@ -52,6 +53,7 @@ pub struct App {
     sender: mpsc::Sender<Notice>,
     state: Option<State>,
     window: Option<u16>,
+    sequence: Sequence,
     telegrams: Vec<Telegram>,
     shown: Vec<usize>,
     filter: Filter,
@@ -86,6 +88,7 @@ impl App {
             sender,
             state: None,
             window: None,
+            sequence: Sequence::default(),
             telegrams: Vec::new(),
             shown: Vec::new(),
             matcher: filter.matcher(),
@@ -148,9 +151,11 @@ impl App {
             match notice.kind {
                 NoticeKind::Event(event) => match event {
                     Event::Sent { frame, .. } => {
+                        self.sequence.trace(Dir::Tx, &frame);
                         self.push(Telegram::new(notice.at, Dir::Tx, frame, sizes));
                     }
                     Event::Received { frame, .. } => {
+                        self.sequence.trace(Dir::Rx, &frame);
                         self.push(Telegram::new(notice.at, Dir::Rx, frame, sizes));
                     }
                     Event::Asdu { asdu, .. } => {
@@ -166,13 +171,17 @@ impl App {
                     Event::Connecting { .. } => {
                         self.status = format!("connecting to {}", self.settings.address());
                     }
-                    Event::Connected { .. } => self.status = "connected".into(),
+                    Event::Connected { .. } => {
+                        self.sequence = Sequence::default();
+                        self.status = "connected".into();
+                    }
                     Event::ConnectFailed { error, .. } => {
                         self.status = format!("connect failed: {error}");
                     }
                     Event::Disconnected { reason, .. } => {
                         self.state = None;
                         self.window = None;
+                        self.sequence = Sequence::default();
                         self.status = format!("disconnected: {reason}");
                         // The station does not resume a transfer or a select
                         // on the next connection.
@@ -342,6 +351,13 @@ impl App {
             ui.label(format!("State: {state}"));
             if let Some(room) = self.window {
                 ui.label(format!("k room: {room}/{}", self.settings.k));
+                let seq = self.sequence;
+                ui.label(format!(
+                    "V(S) {}  V(R) {}  unacknowledged {}",
+                    seq.send.get(),
+                    seq.receive.get(),
+                    seq.unacknowledged()
+                ));
             }
         });
     }
