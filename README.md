@@ -1,77 +1,115 @@
-# IEC 104 Workbench
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/banner-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset=".github/assets/banner-light.svg">
+    <img alt="Zenith IEC104 Workbench" src=".github/assets/banner-dark.svg" width="100%">
+  </picture>
+</p>
 
-A cross-platform desktop test client for IEC 60870-5-104 stations. It connects to a controlled station (outstation), shows every frame on the wire, keeps a live table of the reported values, and sends any command, system request, parameter or monitor-direction message you build, or raw ASDU octets typed as hex.
+# iec104-workbench
 
-One self-contained binary for Windows, macOS and Linux: no runtime, no OpenSSL, no GTK. The protocol is [zenith-iec104](https://github.com/Project-Stateful-Zenith/zenith-iec104); the GUI is [egui](https://github.com/emilk/egui).
+A desktop test client for IEC 60870-5-104, the protocol SCADA control centres
+use to talk to substations and other remote stations over TCP. It connects to
+a controlled station (outstation), shows every frame on the wire, keeps a live
+table of the values the station reports, and sends whatever you build.
+
+| View | Use |
+| --- | --- |
+| Telegrams | every APDU sent and received, filtered, decoded layer by layer |
+| Points | the latest value, quality and time tag of every information object |
+| Send | process, system, parameter and monitor-direction messages, or raw ASDU octets |
 
 > [!NOTE]
 > This repository is a clone of an internal production repository. It may
 > lag behind the internal one in releases and patches, though we try to
 > patch issues here that we catch internally.
 
-## Features
+## How it is built
 
-**Connection**
-- Host, port, common address, originator address
-- Address sizes: cause of transmission 1 or 2 octets, common address 1–2, object address 1–3
-- Link parameters k, w and t0–t3, checked against the standard's ranges
-- STARTDT on connect (or manual STARTDT / STOPDT), automatic redial every t0
-- Mutual TLS (1.2 / 1.3) with PEM certificate, key and CA, optional server-name check
-- Connection state and free room in the k window
+The protocol is [zenith-iec104](https://github.com/Project-Stateful-Zenith/zenith-iec104):
+its master driver on Tokio carries the link layer (sequence numbers, the k
+and w window, the t0 to t3 timers, TESTFR), and its ASDU codec builds and
+decodes every message. The GUI is [egui](https://github.com/emilk/egui).
 
-**Telegram list**
-- Every APDU sent and received (I, S and U frames) with time, direction, type, cause, CA and a one-line decode
-- Filters by CA, object address, type identifications, causes, direction and category (S/U frames, monitor, process commands, system commands, parameters, file transfer)
-- Detail pane and any number of detail windows (double-click): APCI with N(S)/N(R), data unit identifier, every information object decoded, octets in hex
-- Copy as hex, as a C array, or the decoded summary
-- Record to a file and open it again later; points are rebuilt from the recording
+The result is one self-contained binary for Windows, macOS and Linux: no
+runtime, no OpenSSL, no GTK. On Linux it loads the system's OpenGL and X11 or
+Wayland libraries at run time, which any desktop has.
 
-**Points**
-- Latest value, quality (IV NT SB BL OV), time tag, cause and update count of every information object, keyed by CA and object address
-- Export to CSV
+What it covers:
 
-**Send**
-- Process commands: single, double, regulating step, set point normalized / scaled / float, bitstring; select or execute, qualifier, with or without CP56 time tag
-- System commands: interrogation (station or group), counter interrogation with freeze mode, read, clock synchronisation, test with time tag, reset process
-- Parameters: P_ME_NA/NB/NC with KPA, P_AC_NA
-- Monitor direction: single, double, step position, bitstring, normalized, scaled, float, integrated totals, each with quality flags and optional time tag
-- Any cause of transmission, P/N and test bit
-- Hex: raw ASDU octets with a live decode, sent as one I-frame
+- **Connection**: host, port, common address and originator address; cause
+  of transmission 1 or 2 octets, common address 1 or 2, object address 1 to
+  3; k, w and t0 to t3, checked against the standard's ranges; STARTDT on
+  connect or manual STARTDT/STOPDT, and a redial every t0; mutual TLS 1.2
+  and 1.3 with PEM certificate, key and CA.
+- **Telegrams**: time, direction, type, cause, CA and a one-line decode of
+  every I, S and U frame; filters by CA, object address, type, cause,
+  direction and category; a detail pane and any number of detail windows
+  with the APCI, the data unit identifier and every information object;
+  copy as hex, as a C array or as the decoded line; record to a file and
+  open it again.
+- **Points**: value, quality (IV NT SB BL OV), time tag, cause and update
+  count per CA and object address; export to CSV.
+- **Send**: single, double and regulating step commands, set points
+  (normalized, scaled, float) and bitstrings, select or execute, with or
+  without CP56 time tag; interrogation, counter interrogation, read, clock
+  synchronisation, test and reset process; parameters P_ME_NA/NB/NC and
+  P_AC_NA; monitor-direction values with quality flags; any cause, P/N and
+  test bit; raw ASDU octets in hex with a live decode.
+- **Profiles**: all settings saved and loaded as TOML; the last ones are
+  remembered.
 
-**Profiles**: save and load all settings as TOML; the last settings are remembered.
+## Screenshot
+
+<p align="center">
+  <img alt="The telegram list after a station interrogation" src=".github/assets/screenshot.png" width="100%">
+</p>
 
 ## Download
 
-Prebuilt binaries are attached to each [release](https://github.com/Project-Stateful-Zenith/iec104-workbench/releases).
+Prebuilt binaries for Windows, macOS (Apple silicon and Intel) and Linux are
+attached to each
+[release](https://github.com/Project-Stateful-Zenith/iec104-workbench/releases).
+Unpack and run; there is nothing to install.
 
-On Linux the binary loads the system's OpenGL and X11 or Wayland libraries at run time; any desktop has them.
-
-## Build
-
-```sh
-cargo build --release
-./target/release/iec104-workbench
-```
-
-Rust 1.95 or later.
-
-## Recording format
-
-One telegram per line: Unix time in milliseconds, `TX` or `RX`, the APDU in hex.
+A recording (Telegrams → Save recording) holds one telegram per line: Unix
+time in milliseconds, `TX` or `RX`, the APDU in hex.
 
 ```text
 1792569580988 TX 68 04 07 00 00 00
 1792569580989 RX 68 04 0B 00 00 00
 ```
 
-## Not yet
+## Build
 
-- File transfer (F_* types are decoded and can be sent as hex, but there is no upload/download workflow)
-- Scripting and a headless mode
-- Redundancy groups (several connections to one station)
-- Station simulator mode
-- Hand-made S- and U-frames: the link layer stays with the library, so sequence numbers and TESTFR are always valid
+```sh
+cargo build --release
+cargo test
+./target/release/iec104-workbench
+```
+
+Rust 1.88 or newer. The tests include an end-to-end run against
+zenith-iec104's own server; no hardware is needed.
+
+Not yet in this version: file transfer workflows (the F_* types decode and
+can be sent as hex), scripting, redundancy groups and a station simulator.
+
+## Disclaimer
+
+> [!WARNING]
+> This project is an independent implementation, built on zenith-iec104,
+> which is written from the published IEC 60870-5-104 standards. No text of
+> the standards and no code of other implementations is contained in this
+> repository.
+>
+> This project is not affiliated with, endorsed by or supported by the IEC.
+> TLS follows the IEC 62351-3 profile as secondary sources describe it and
+> claims no conformance to IEC 62351.
+>
+> The software is provided "as is", without warranty of any kind. Use it at
+> your own risk, especially when sending commands to equipment.
 
 ## License
 
-Apache-2.0
+Apache-2.0, see [LICENSE](LICENSE).
+Copyright 2026 Project-Stateful-Zenith Contributors.
