@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use iec104::asdu::AddressSizes;
 use iec104::params::LinkParams;
-use iec104_tls::{Identity, TlsConfig, certificates_from_pem_file};
+use iec104_tls::{Identity, TlsConfig, Version, certificates_from_pem_file, crls_from_pem_file};
 use serde::{Deserialize, Serialize};
 
 use crate::simulator::{ServedFile, SimPoint};
@@ -37,12 +37,39 @@ pub struct Settings {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
+#[expect(clippy::struct_excessive_bools, reason = "independent switches")]
 pub struct Tls {
     pub enabled: bool,
     pub certificate: String,
     pub key: String,
     pub ca: String,
     pub verify_server_name: bool,
+    /// Empty: no revocation check.
+    pub crl: String,
+    /// Empty: any peer the CA vouches for.
+    pub allowed_peers: String,
+    pub min_version: TlsVersion,
+    pub max_version: TlsVersion,
+    pub crl_end_entity_only: bool,
+    pub allow_unknown_revocation_status: bool,
+    pub handshake_timeout: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TlsVersion {
+    #[serde(rename = "1.2")]
+    Tls12,
+    #[serde(rename = "1.3")]
+    Tls13,
+}
+
+impl TlsVersion {
+    const fn library(self) -> Version {
+        match self {
+            Self::Tls12 => Version::Tls12,
+            Self::Tls13 => Version::Tls13,
+        }
+    }
 }
 
 impl Default for Tls {
@@ -53,6 +80,13 @@ impl Default for Tls {
             key: String::new(),
             ca: String::new(),
             verify_server_name: true,
+            crl: String::new(),
+            allowed_peers: String::new(),
+            min_version: TlsVersion::Tls12,
+            max_version: TlsVersion::Tls13,
+            crl_end_entity_only: false,
+            allow_unknown_revocation_status: false,
+            handshake_timeout: 10,
         }
     }
 }
@@ -114,10 +148,27 @@ impl Settings {
         let identity = Identity::from_pem_files(&self.tls.certificate, &self.tls.key)
             .map_err(|e| format!("TLS identity: {e}"))?;
         let roots = certificates_from_pem_file(&self.tls.ca).map_err(|e| format!("TLS CA: {e}"))?;
-        TlsConfig::builder(identity, roots)
-            .verify_server_name(self.tls.verify_server_name)
-            .build()
-            .map_err(|e| format!("TLS: {e}"))
+        let tls = &self.tls;
+        let mut builder = TlsConfig::builder(identity, roots)
+            .verify_server_name(tls.verify_server_name)
+            .versions(tls.min_version.library(), tls.max_version.library())
+            .handshake_timeout(Duration::from_secs(tls.handshake_timeout));
+        if !tls.allowed_peers.is_empty() {
+            let peers = certificates_from_pem_file(&tls.allowed_peers)
+                .map_err(|e| format!("TLS allowed peers: {e}"))?;
+            builder = builder.allow_peers(peers);
+        }
+        if !tls.crl.is_empty() {
+            let crls = crls_from_pem_file(&tls.crl).map_err(|e| format!("TLS CRL: {e}"))?;
+            builder = builder.crls(crls);
+            if tls.crl_end_entity_only {
+                builder = builder.only_check_end_entity_revocation();
+            }
+            if tls.allow_unknown_revocation_status {
+                builder = builder.allow_unknown_revocation_status();
+            }
+        }
+        builder.build().map_err(|e| format!("TLS: {e}"))
     }
 
     pub fn load(path: &Path) -> Result<Self, String> {
@@ -132,8 +183,102 @@ impl Settings {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
+    use std::path::PathBuf;
+
     use super::*;
+
+    /// A throwaway CA, leaves `a` and `b` for 127.0.0.1, and a CRL revoking `b`, as PEM files.
+    pub fn test_pki(name: &str) -> PathBuf {
+        use rcgen::{
+            BasicConstraints, CertificateParams, CertificateRevocationListParams, DnType,
+            ExtendedKeyUsagePurpose, IsCa, Issuer, KeyIdMethod, KeyPair, KeyUsagePurpose,
+            RevokedCertParams, SerialNumber, date_time_ymd,
+        };
+
+        let dir =
+            std::env::temp_dir().join(format!("iec104-workbench-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let write = |file: &str, text: &str| std::fs::write(dir.join(file), text).unwrap();
+        let ca_key = KeyPair::generate().unwrap();
+        let mut ca = CertificateParams::new(Vec::<String>::new()).unwrap();
+        ca.distinguished_name.push(DnType::CommonName, "test CA");
+        ca.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+        ca.key_usages = vec![
+            KeyUsagePurpose::KeyCertSign,
+            KeyUsagePurpose::CrlSign,
+            KeyUsagePurpose::DigitalSignature,
+        ];
+        write("ca.pem", &ca.self_signed(&ca_key).unwrap().pem());
+        let issuer = Issuer::new(ca, ca_key);
+        for (leaf, serial) in [("a", 1_u64), ("b", 2)] {
+            let key = KeyPair::generate().unwrap();
+            let mut params = CertificateParams::new(vec!["127.0.0.1".to_string()]).unwrap();
+            params.serial_number = Some(SerialNumber::from(serial));
+            params.extended_key_usages = vec![
+                ExtendedKeyUsagePurpose::ServerAuth,
+                ExtendedKeyUsagePurpose::ClientAuth,
+            ];
+            write(
+                &format!("{leaf}.pem"),
+                &params.signed_by(&key, &issuer).unwrap().pem(),
+            );
+            write(&format!("{leaf}.key"), &key.serialize_pem());
+        }
+        let crl = CertificateRevocationListParams {
+            this_update: date_time_ymd(2020, 1, 1),
+            next_update: date_time_ymd(2100, 1, 1),
+            crl_number: SerialNumber::from(1_u64),
+            issuing_distribution_point: None,
+            revoked_certs: vec![RevokedCertParams {
+                serial_number: SerialNumber::from(2_u64),
+                revocation_time: date_time_ymd(2020, 1, 1),
+                reason_code: None,
+                invalidity_date: None,
+            }],
+            key_identifier_method: KeyIdMethod::Sha256,
+        };
+        write("crl.pem", &crl.signed_by(&issuer).unwrap().pem().unwrap());
+        dir
+    }
+
+    /// TLS settings for 127.0.0.1:`port` with leaf `leaf` of [`test_pki`].
+    pub fn tls_settings(pki: &Path, leaf: &str, port: u16) -> Settings {
+        let path = |file: &str| pki.join(file).display().to_string();
+        let mut settings = Settings {
+            port,
+            ..Settings::default()
+        };
+        settings.tls.enabled = true;
+        settings.tls.ca = path("ca.pem");
+        settings.tls.certificate = path(&format!("{leaf}.pem"));
+        settings.tls.key = path(&format!("{leaf}.key"));
+        settings
+    }
+
+    #[test]
+    fn tls_config_takes_the_options() {
+        let pki = test_pki("tls-options");
+        let mut settings = tls_settings(&pki, "a", 2404);
+        let defaults = settings.tls_config();
+        settings.tls.crl = pki.join("crl.pem").display().to_string();
+        settings.tls.allowed_peers = pki.join("a.pem").display().to_string();
+        settings.tls.min_version = TlsVersion::Tls13;
+        settings.tls.crl_end_entity_only = true;
+        settings.tls.allow_unknown_revocation_status = true;
+        settings.tls.handshake_timeout = 3;
+        let built = settings.tls_config();
+        settings.tls.max_version = TlsVersion::Tls12;
+        let inverted = settings.tls_config();
+        settings.tls.max_version = TlsVersion::Tls13;
+        settings.tls.crl = pki.join("a.pem").display().to_string();
+        let not_a_crl = settings.tls_config();
+        let _ = std::fs::remove_dir_all(&pki);
+        assert!(defaults.is_ok(), "{defaults:?}");
+        assert!(built.is_ok(), "{built:?}");
+        assert!(inverted.is_err(), "minimum above maximum");
+        assert!(not_a_crl.is_err(), "a certificate given as CRL");
+    }
 
     #[test]
     fn defaults_are_valid_and_round_trip() {
@@ -143,6 +288,17 @@ mod tests {
         assert!(settings.tls.verify_server_name, "the library's default");
         let old_profile: Settings = toml::from_str("[tls]\nenabled = true").unwrap();
         assert!(old_profile.tls.verify_server_name);
+        assert!(old_profile.tls.crl.is_empty() && old_profile.tls.allowed_peers.is_empty());
+        assert_eq!(
+            (old_profile.tls.min_version, old_profile.tls.max_version),
+            (TlsVersion::Tls12, TlsVersion::Tls13)
+        );
+        assert!(!old_profile.tls.crl_end_entity_only);
+        assert!(!old_profile.tls.allow_unknown_revocation_status);
+        assert_eq!(
+            old_profile.tls.handshake_timeout, 10,
+            "the library's default"
+        );
         let text = toml::to_string_pretty(&settings).unwrap();
         assert_eq!(toml::from_str::<Settings>(&text).unwrap(), settings);
     }
