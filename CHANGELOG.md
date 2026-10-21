@@ -6,6 +6,8 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-21
+
 ### Added
 
 - Select + execute: one click sends the select, waits for the station's
@@ -58,6 +60,7 @@ The first release.
 - TOML profiles; the last settings are remembered.
 - Prebuilt binaries for Windows, macOS and Linux.
 
-[Unreleased]: https://github.com/Project-Stateful-Zenith/iec104-workbench/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Project-Stateful-Zenith/iec104-workbench/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Project-Stateful-Zenith/iec104-workbench/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Project-Stateful-Zenith/iec104-workbench/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Project-Stateful-Zenith/iec104-workbench/releases/tag/v0.1.0
