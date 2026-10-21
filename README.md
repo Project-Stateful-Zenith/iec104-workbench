@@ -73,13 +73,9 @@ What it covers:
   you mark (directly or by select and execute), and can echo a command's
   result as return information. Each point carries the IV, NT, SB, BL and
   OV quality flags you tick. It serves files too: a call directory lists
-  them and a client can download them. The log shows clients connecting
+  them and a client can download them, and with Accept uploads on it saves
+  the files a client uploads to a folder. The log shows clients connecting
   and disconnecting, and every frame goes to the telegram list.
-  its points, sends a value you edit as a spontaneous event, takes commands
-  on the points you mark (directly or by select and execute), and can echo
-  a command's result as return information. It serves files too: a call
-  directory lists them and a client can download them; and with Accept
-  uploads on it receives files a client uploads and saves them to a folder. Every frame goes to the telegram list.
 - **Profiles**: all settings, simulator points included, saved and loaded
   as TOML; the last ones are remembered.
 
@@ -155,9 +151,7 @@ zenith-iec104's own server; no hardware is needed.
 
 Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
-Not yet in this version: receiving uploaded files in the simulator,
-a script window in the GUI and redundancy groups.
-Not yet in this version: scripting and redundancy groups.
+Not yet in this version: a script window in the GUI and redundancy groups.
 
 ## Disclaimer
 
