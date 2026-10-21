@@ -1,8 +1,8 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::fmt::Write as _;
 use std::path::Path;
 
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Datelike, Local, Timelike};
 use iec104::asdu::{self, AddressSizes, Quality, TimeTag, Value};
 
 use crate::telegram::cause_name;
@@ -15,7 +15,12 @@ pub struct Row {
     pub cause: String,
     pub updates: u64,
     pub received: DateTime<Local>,
+    /// The samples charted, `[seconds, value]`; `None` while not charted.
+    pub history: Option<VecDeque<[f64; 2]>>,
 }
+
+/// The most samples kept per charted point.
+pub const MAX_SAMPLES: usize = 10_000;
 
 /// Keyed by (common address, object address).
 #[derive(Default)]
@@ -41,6 +46,7 @@ impl Points {
                     cause: String::new(),
                     updates: 0,
                     received: at,
+                    history: None,
                 });
             row.type_name = header.type_id.name();
             row.value = value_text(&point.value);
@@ -49,6 +55,12 @@ impl Points {
             row.cause = cause_name(header.cause);
             row.updates = row.updates.saturating_add(1);
             row.received = at;
+            if let (Some(history), Some(value)) = (&mut row.history, numeric(&point.value)) {
+                if history.len() >= MAX_SAMPLES {
+                    history.pop_front();
+                }
+                history.push_back([seconds(at), value]);
+            }
         }
     }
 
@@ -68,6 +80,29 @@ impl Points {
             );
         }
         std::fs::write(path, text).map_err(|e| e.to_string())
+    }
+}
+
+/// The chart's x: seconds since 0001-01-01 local time, kept continuous over
+/// midnight and exact in an f64.
+pub fn seconds(at: DateTime<Local>) -> f64 {
+    f64::from(at.num_days_from_ce()).mul_add(
+        86_400.0,
+        f64::from(at.num_seconds_from_midnight()) + f64::from(at.nanosecond()) / 1e9,
+    )
+}
+
+/// The value as a number to chart; double points as their bits 0 to 3.
+pub fn numeric(value: &Value) -> Option<f64> {
+    match *value {
+        Value::Single(on) => Some(f64::from(u8::from(on))),
+        Value::Double(state) => Some(f64::from(state.to_bits())),
+        Value::StepPosition { value, .. } => Some(f64::from(value)),
+        Value::Normalized(v) => Some(v),
+        Value::Scaled(v) => Some(f64::from(v)),
+        Value::Float(v) => Some(f64::from(v)),
+        Value::Counter { reading, .. } => Some(f64::from(reading)),
+        _ => None,
     }
 }
 
@@ -152,5 +187,52 @@ mod tests {
         assert_eq!(row.value, "2");
         assert_eq!(row.updates, 2);
         assert_eq!(row.cause, "spont");
+    }
+
+    #[test]
+    fn charts_only_marked_points_and_keeps_the_newest_samples() {
+        // M_ME_NB_1, CA 12, IOA 0x3010.
+        let mut asdu = [
+            0x0B, 0x01, 0x03, 0x00, 0x0C, 0x00, 0x10, 0x30, 0x00, 0x01, 0x00, 0x00,
+        ];
+        let mut points = Points::default();
+        let at = Local::now();
+        points.apply(&asdu, AddressSizes::CONVENTIONAL, at);
+        let row = points.rows.get_mut(&(12, 0x3010)).unwrap();
+        assert!(row.history.is_none());
+        row.history = Some(VecDeque::new());
+        for value in 0..=MAX_SAMPLES {
+            asdu[9..11].copy_from_slice(&u16::try_from(value).unwrap().to_le_bytes());
+            points.apply(&asdu, AddressSizes::CONVENTIONAL, at);
+        }
+        let history = points.rows[&(12, 0x3010)].history.as_ref().unwrap();
+        assert_eq!(history.len(), MAX_SAMPLES);
+        assert_eq!(history.front().unwrap()[1], 1.0);
+        assert_eq!(history.back().unwrap(), &[seconds(at), 10_000.0]);
+    }
+
+    #[test]
+    fn maps_values_to_numbers() {
+        use iec104::asdu::DoublePointState;
+        assert_eq!(numeric(&Value::Single(true)), Some(1.0));
+        assert_eq!(numeric(&Value::Double(DoublePointState::On)), Some(2.0));
+        assert_eq!(
+            numeric(&Value::StepPosition {
+                value: -5,
+                transient: true
+            }),
+            Some(-5.0)
+        );
+        assert_eq!(numeric(&Value::Scaled(-300)), Some(-300.0));
+        assert_eq!(numeric(&Value::Float(1.5)), Some(1.5));
+        assert_eq!(numeric(&Value::Bitstring(1)), None);
+    }
+
+    #[test]
+    fn seconds_run_on_over_midnight() {
+        use chrono::TimeZone;
+        let before = Local.with_ymd_and_hms(2026, 1, 1, 23, 59, 59).unwrap();
+        let after = Local.with_ymd_and_hms(2026, 1, 2, 0, 0, 1).unwrap();
+        assert_eq!(seconds(after) - seconds(before), 2.0);
     }
 }

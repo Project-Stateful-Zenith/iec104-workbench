@@ -56,7 +56,8 @@ What it covers:
   copy as hex, as a C array or as the decoded line; record to a file and
   open it again; export the shown telegrams as text or JSON.
 - **Points**: value, quality (IV NT SB BL OV), time tag, cause and update
-  count per CA and object address; export to CSV.
+  count per CA and object address; a time chart of the points ticked;
+  export to CSV.
 - **Send**: single, double and regulating step commands, set points
   (normalized, scaled, float) and bitstrings, select or execute or both in
   one click, QU by name, with or without CP56 time tag; interrogation,

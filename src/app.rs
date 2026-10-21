@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -1183,11 +1184,27 @@ impl App {
         }
     }
 
-    fn points_table(&self, ui: &mut Ui) {
+    fn points_view(&mut self, ui: &mut Ui) {
+        let charted = self.points.rows.values().any(|r| r.history.is_some());
+        let height = if charted {
+            ui.available_height() / 2.0
+        } else {
+            f32::INFINITY
+        };
+        self.points_table(ui, height);
+        if charted {
+            ui.separator();
+            trend_chart(ui, &self.points);
+        }
+    }
+
+    fn points_table(&mut self, ui: &mut Ui, height: f32) {
         let row_height = ui.text_style_height(&egui::TextStyle::Monospace) + 4.0;
-        let rows: Vec<_> = self.points.rows.iter().collect();
+        let mut rows: Vec<_> = self.points.rows.iter_mut().collect();
         TableBuilder::new(ui)
             .striped(true)
+            .max_scroll_height(height)
+            .column(Column::auto())
             .column(Column::auto().at_least(40.0))
             .column(Column::auto().at_least(60.0))
             .column(Column::auto().at_least(90.0))
@@ -1199,7 +1216,7 @@ impl App {
             .column(Column::remainder())
             .header(20.0, |mut header| {
                 for title in [
-                    "CA", "IOA", "Type", "Value", "Quality", "Time tag", "Cause", "Count",
+                    "Chart", "CA", "IOA", "Type", "Value", "Quality", "Time tag", "Cause", "Count",
                     "Received",
                 ] {
                     header.col(|ui| {
@@ -1209,9 +1226,15 @@ impl App {
             })
             .body(|body| {
                 body.rows(row_height, rows.len(), |mut row| {
-                    let Some(((ca, ioa), r)) = rows.get(row.index()) else {
+                    let Some(((ca, ioa), r)) = rows.get_mut(row.index()) else {
                         return;
                     };
+                    row.col(|ui| {
+                        let mut on = r.history.is_some();
+                        if ui.checkbox(&mut on, "").changed() {
+                            r.history = on.then(VecDeque::new);
+                        }
+                    });
                     for text in [
                         ca.to_string(),
                         ioa.to_string(),
@@ -1336,7 +1359,7 @@ impl eframe::App for App {
                     self.filter_bar(ui);
                     self.telegram_table(ui);
                 }
-                View::Points => self.points_table(ui),
+                View::Points => self.points_view(ui),
                 View::Files => self.files_view(ui),
                 View::Station => self.station_view(ui),
             }
@@ -1344,6 +1367,29 @@ impl eframe::App for App {
         self.settings_window(ctx);
         self.detail_windows(ctx);
     }
+}
+
+fn trend_chart(ui: &mut Ui, points: &Points) {
+    egui_plot::Plot::new("trend")
+        .legend(egui_plot::Legend::default())
+        .x_axis_formatter(|mark, _| {
+            // Time of day from the seconds `points::seconds` counts.
+            let day = mark.value.rem_euclid(86_400.0);
+            format!(
+                "{:02.0}:{:02.0}:{:02.0}",
+                (day / 3600.0).floor(),
+                (day / 60.0).floor() % 60.0,
+                day.floor() % 60.0
+            )
+        })
+        .show(ui, |plot| {
+            for ((ca, ioa), row) in &points.rows {
+                if let Some(history) = &row.history {
+                    let samples: egui_plot::PlotPoints = history.iter().copied().collect();
+                    plot.line(egui_plot::Line::new(format!("{ca}/{ioa}"), samples));
+                }
+            }
+        });
 }
 
 fn row_menu(ui: &mut Ui, t: &Telegram) -> bool {
