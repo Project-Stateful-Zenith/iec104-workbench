@@ -45,6 +45,8 @@ follow [Semantic Versioning](https://semver.org/).
 - Telegrams → Export as text… and Export as JSON… write the telegrams the
   list shows: as text with each telegram's details, or as JSON with time,
   direction, octets, type, cause, CA, object addresses and summary (#34).
+- Points tab: tick a point's Chart box to draw its value over time; the
+  last 10 000 numeric values per point are kept (#37).
 
 ### Fixed
 
