@@ -237,6 +237,20 @@ pub fn parse_hex(text: &str) -> Result<Vec<u8>, String> {
         .collect()
 }
 
+/// The most telegrams kept: about 300 MB, a day at a few frames a second.
+pub const MAX_TELEGRAMS: usize = 1_000_000;
+
+/// Makes room for one more telegram once `list` holds `max`: drops the oldest
+/// half and returns how many went, so indices into the list can follow.
+pub fn make_room<T>(list: &mut Vec<T>, max: usize) -> usize {
+    if list.len() < max {
+        return 0;
+    }
+    let dropped = list.len().saturating_sub(max / 2);
+    list.drain(..dropped);
+    dropped
+}
+
 /// Which telegrams the list shows. Empty text fields match everything.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Filter {
@@ -414,6 +428,15 @@ mod tests {
             rx: false,
             ..Filter::default()
         }));
+    }
+
+    #[test]
+    fn keeps_the_newer_half_when_full() {
+        let mut list: Vec<u32> = (0..10).collect();
+        assert_eq!(make_room(&mut list, 11), 0);
+        assert_eq!(list.len(), 10);
+        assert_eq!(make_room(&mut list, 10), 5);
+        assert_eq!(list, [5, 6, 7, 8, 9]);
     }
 
     #[test]
