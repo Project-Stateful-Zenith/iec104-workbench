@@ -538,7 +538,7 @@ impl Forms {
                 tagged!(t, ioa, CRcTa1, CRcNa1 { rco })
             }
             ProcessKind::Normalized => {
-                let nva = Nva::from_scaled(parse(&self.value, "value")?);
+                let nva = normalized(&self.value)?;
                 let qos = qos()?;
                 tagged!(t, ioa, CSeTa1, CSeNa1 { nva, qos })
             }
@@ -615,7 +615,7 @@ impl Forms {
             ParameterKind::Normalized => Objects::PMeNa1(one(
                 ioa,
                 PMeNa1 {
-                    nva: Nva::from_scaled(parse(&self.value, "value")?),
+                    nva: normalized(&self.value)?,
                     qpm: qpm()?,
                 },
             )),
@@ -674,7 +674,7 @@ impl Forms {
                 tagged!(t, ioa, MBoTb1, MBoNa1 { bsi, qds })
             }
             MonitorKind::Normalized => {
-                let nva = Nva::from_scaled(parse(&self.value, "value")?);
+                let nva = normalized(&self.value)?;
                 tagged!(t, ioa, MMeTd1, MMeNa1 { nva, qds })
             }
             MonitorKind::Scaled => {
@@ -716,6 +716,16 @@ pub fn confirmation(asdu: &[u8], sizes: AddressSizes, type_id: u8, ioa: u32) -> 
         && header.type_id.to_u8() == type_id
         && iec104::asdu::read_ioa_with(objects, sizes).ok()? == ioa;
     matches.then_some(header.cause == Cause::ActivationCon && !header.negative)
+}
+
+/// `Nva::from_scaled` clamps silently outside the `NVA` range (5-101
+/// cl.7.2.6.6), so a value it cannot carry is refused here instead.
+pub fn normalized(text: &str) -> Result<Nva, String> {
+    let value: f64 = parse(text, "value")?;
+    if !(-1.0..1.0).contains(&value) {
+        return Err("normalized value: from -1 to just under 1".into());
+    }
+    Ok(Nva::from_scaled(value))
 }
 
 fn hex_u32(text: &str) -> Result<u32, String> {
@@ -762,7 +772,7 @@ mod tests {
     #[test]
     fn every_kind_encodes() {
         let mut forms = Forms {
-            value: "1".into(),
+            value: "0".into(),
             qualifier: "1".into(),
             ..Forms::default()
         };
@@ -844,6 +854,30 @@ mod tests {
         assert_eq!(confirmation(&confirmed, CTX.sizes, 45, 4001), Some(false));
         confirmed[2] = 6;
         assert_eq!(confirmation(&confirmed, CTX.sizes, 45, 4001), None);
+    }
+
+    #[test]
+    fn normalized_values_stay_in_range() {
+        for ok in ["-1", "0", "0.5", "0.99996"] {
+            assert!(normalized(ok).is_ok(), "{ok}");
+        }
+        for bad in ["1", "5", "-1.5", "nan", "inf"] {
+            assert!(normalized(bad).is_err(), "{bad}");
+        }
+        let mut forms = Forms {
+            tab: Tab::Process,
+            process: ProcessKind::Normalized,
+            value: "5".into(),
+            ..Forms::default()
+        };
+        assert!(forms.build(&CTX).is_err(), "not clamped to 0.99997");
+        forms.tab = Tab::Parameter;
+        forms.parameter = ParameterKind::Normalized;
+        forms.qualifier = "1".into();
+        assert!(forms.build(&CTX).is_err());
+        forms.tab = Tab::Monitor;
+        forms.monitor = MonitorKind::Normalized;
+        assert!(forms.build(&CTX).is_err());
     }
 
     #[test]
