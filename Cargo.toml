@@ -23,6 +23,9 @@ serde = { version = "1.0.229", features = ["derive"] }
 toml = "1.1"
 tokio = { version = "1.54", features = ["net", "rt-multi-thread", "sync", "time", "macros"] }
 
+[dev-dependencies]
+rcgen = "0.14"
+
 [profile.release]
 lto = true
 codegen-units = 1

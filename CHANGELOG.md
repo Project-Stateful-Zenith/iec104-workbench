@@ -8,6 +8,8 @@ follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The simulator runs each TLS handshake on its own: a client that connected
+  and stalled its handshake held off every other client for 10 s (#8).
 - The simulator waits 100 ms after a failed accept instead of retrying at
   once, which spun a core on a lasting error (#7).
 - A file transfer and a pending select + execute stop when the connection
