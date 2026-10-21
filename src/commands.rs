@@ -728,7 +728,7 @@ pub fn normalized(text: &str) -> Result<Nva, String> {
     Ok(Nva::from_scaled(value))
 }
 
-fn hex_u32(text: &str) -> Result<u32, String> {
+pub fn hex_u32(text: &str) -> Result<u32, String> {
     let digits = text
         .trim()
         .trim_start_matches("0x")

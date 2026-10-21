@@ -8,6 +8,8 @@ follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The simulator's point table reads bitstrings by the send forms' rule, so
+  `0XBEEF` is accepted there too (#9).
 - The simulator runs each TLS handshake on its own: a client that connected
   and stalled its handshake held off every other client for 10 s (#8).
 - The simulator waits 100 ms after a failed accept instead of retrying at

@@ -105,9 +105,7 @@ impl SimPoint {
                     .ok_or_else(bad)?,
                 transient: false,
             },
-            Kind::Bitstring => Value::Bitstring(
-                u32::from_str_radix(text.trim_start_matches("0x"), 16).map_err(|_| bad())?,
-            ),
+            Kind::Bitstring => Value::Bitstring(crate::commands::hex_u32(text).map_err(|_| bad())?),
             Kind::Normalized => Value::Normalized(
                 crate::commands::normalized(text)
                     .map_err(|_| bad())?
@@ -867,5 +865,14 @@ mod tests {
             .parse()
             .is_err()
         );
+        // The send forms' rule: `0x` or `0X`, either case of digit.
+        for text in ["0xbeef", "0XBEEF", "beef"] {
+            let point = SimPoint {
+                kind: Kind::Bitstring,
+                value: text.into(),
+                ..SimPoint::new(1)
+            };
+            assert_eq!(point.parse(), Ok(Value::Bitstring(0xBEEF)), "{text}");
+        }
     }
 }
