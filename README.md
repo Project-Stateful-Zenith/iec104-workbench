@@ -43,8 +43,11 @@ What it covers:
   of transmission 1 or 2 octets, common address 1 or 2, object address 1 to
   3; k, w and t0 to t3, checked against the standard's ranges; STARTDT on
   connect or manual STARTDT/STOPDT, and a redial every t0; mutual TLS 1.2
-  and 1.3 with PEM certificate, key and CA.
-- **Telegrams**: time, direction, type, cause, CA and a one-line decode of
+  and 1.3 with PEM certificate, key and CA; redundancy groups (clause 10):
+  several connections to one station, each member's state shown, manual
+  switchover by STARTDT on a member, and unconfirmed data sent again after
+  a failed started connection.
+- **Telegrams**: time, direction, connection, type, cause, CA and a one-line decode of
   every I, S and U frame; filters by CA, object address, type, cause,
   direction and category; a detail pane and any number of detail windows
   with the APCI, the data unit identifier and every information object;

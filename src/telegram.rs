@@ -69,6 +69,9 @@ impl Category {
 pub struct Telegram {
     pub at: DateTime<Local>,
     pub dir: Dir,
+    /// The connection it went on: 0, or a redundancy group's member. Not
+    /// kept in recordings.
+    pub conn: usize,
     pub bytes: Vec<u8>,
     pub category: Category,
     pub header: Option<Header>,
@@ -97,6 +100,7 @@ impl Telegram {
         Self {
             at,
             dir,
+            conn: 0,
             bytes,
             category,
             header,

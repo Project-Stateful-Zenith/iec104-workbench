@@ -26,6 +26,9 @@ pub struct Settings {
     pub t2: u64,
     pub t3: u64,
     pub auto_start: bool,
+    /// Further `host:port`s to the same station: with any, the connections
+    /// form a redundancy group (clause 10).
+    pub redundant: Vec<String>,
     pub tls: Tls,
     pub station: Vec<SimPoint>,
     pub served: Vec<ServedFile>,
@@ -75,6 +78,7 @@ impl Default for Settings {
             t2: link.t2.as_secs(),
             t3: link.t3.as_secs(),
             auto_start: true,
+            redundant: Vec::new(),
             tls: Tls::default(),
             station: (1..=3).map(SimPoint::new).collect(),
             served: Vec::new(),
@@ -87,6 +91,13 @@ impl Default for Settings {
 impl Settings {
     pub fn address(&self) -> String {
         format!("{}:{}", self.host, self.port)
+    }
+
+    /// Connection 0 first, then the redundant ones.
+    pub fn addresses(&self) -> Vec<String> {
+        std::iter::once(self.address())
+            .chain(self.redundant.iter().cloned())
+            .collect()
     }
 
     pub fn sizes(&self) -> Result<AddressSizes, String> {
