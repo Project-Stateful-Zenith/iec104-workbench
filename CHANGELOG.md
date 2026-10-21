@@ -6,6 +6,12 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+
+### Fixed
+
+- TLS checks that the station's certificate names the host dialed, as the
+  library does by default; it was off unless ticked (#1).
+
 ## [0.5.0] - 2026-10-21
 
 ### Added

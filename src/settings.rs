@@ -35,7 +35,7 @@ pub struct Settings {
     pub select_before_execute: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Tls {
     pub enabled: bool,
@@ -43,6 +43,18 @@ pub struct Tls {
     pub key: String,
     pub ca: String,
     pub verify_server_name: bool,
+}
+
+impl Default for Tls {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            certificate: String::new(),
+            key: String::new(),
+            ca: String::new(),
+            verify_server_name: true,
+        }
+    }
 }
 
 impl Default for Settings {
@@ -128,6 +140,9 @@ mod tests {
         let settings = Settings::default();
         assert!(settings.link().is_ok());
         assert_eq!(settings.sizes().unwrap(), AddressSizes::CONVENTIONAL);
+        assert!(settings.tls.verify_server_name, "the library's default");
+        let old_profile: Settings = toml::from_str("[tls]\nenabled = true").unwrap();
+        assert!(old_profile.tls.verify_server_name);
         let text = toml::to_string_pretty(&settings).unwrap();
         assert_eq!(toml::from_str::<Settings>(&text).unwrap(), settings);
     }
