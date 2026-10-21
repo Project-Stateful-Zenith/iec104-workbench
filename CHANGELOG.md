@@ -8,6 +8,10 @@ follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Recordings keep their address sizes (`# sizes` lines), and every
+  telegram keeps the sizes it was read with: a recording opened under other
+  settings, or a telegram shown after the settings changed, was decoded with
+  the wrong sizes. Older recordings load as before (#5).
 - The telegram list keeps at most 1 000 000 telegrams and drops the oldest
   half when full; it grew without limit, about 2.6 GB a day at 100 frames a
   second (#4).

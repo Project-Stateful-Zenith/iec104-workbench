@@ -781,7 +781,7 @@ impl App {
                 self.points = Points::default();
                 for t in &self.telegrams {
                     if let Some(asdu) = t.asdu().filter(|_| t.dir == Dir::Rx) {
-                        self.points.apply(asdu, sizes, t.at);
+                        self.points.apply(asdu, t.sizes, t.at);
                     }
                 }
                 self.open.clear();
@@ -1042,7 +1042,6 @@ impl App {
     }
 
     fn detail_windows(&mut self, ctx: &Context) {
-        let sizes = self.sizes();
         let telegrams = &self.telegrams;
         self.open.retain(|&index| {
             let Some(t) = telegrams.get(index) else {
@@ -1054,7 +1053,7 @@ impl App {
                 .default_width(520.0)
                 .show(ctx, |ui| {
                     egui::ScrollArea::vertical().show(ui, |ui| {
-                        ui.label(RichText::new(t.details(sizes)).monospace());
+                        ui.label(RichText::new(t.details()).monospace());
                     });
                 });
             open
@@ -1112,7 +1111,7 @@ impl eframe::App for App {
         if self.view == View::Telegrams
             && let Some(t) = self.selected.and_then(|i| self.telegrams.get(i))
         {
-            let details = t.details(self.sizes());
+            let details = t.details();
             egui::TopBottomPanel::bottom("detail")
                 .resizable(true)
                 .default_height(220.0)
