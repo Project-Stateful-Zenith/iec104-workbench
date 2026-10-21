@@ -6,6 +6,14 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Scripted tests without the GUI: `iec104-workbench run <script.rhai>`
+  with `--profile`, `--log`, `--log-level` and `--record`, exit code 0 on
+  pass and 1 on failure. Scripts are Rhai and connect, send commands or raw
+  ASDUs, wait for replies and check point values; see the README and
+  `examples/smoke.rhai` (#21).
+
 ### Fixed
 
 - The simulator's point table reads bitstrings by the send forms' rule, so

@@ -93,6 +93,44 @@ time in milliseconds, `TX` or `RX`, the APDU in hex.
 1792569580989 RX 68 04 0B 00 00 00
 ```
 
+## Scripted tests
+
+`iec104-workbench run` runs a [Rhai](https://rhai.rs) script without
+opening a window, for checks you repeat or run in CI:
+
+```sh
+iec104-workbench run examples/smoke.rhai --profile station.toml \
+    --log run.log --log-level info --record run.txt
+```
+
+The profile is a TOML file saved from the GUI (defaults without one).
+`--log-level` is `all` (every frame too), `info` (the default), `warn`,
+`error` or `none`; the log goes to stderr and to `--log`. `--record` saves
+the run's telegrams as a recording. The exit code is 0 when the script
+passes, 1 when it fails (a script error, an `expect`, a timed-out wait) and
+2 when it cannot start. On Windows the release binary has no console, so
+use `--log` there.
+
+| Function | Does |
+| --- | --- |
+| `connect()` / `disconnect()` | open and close the profile's connection; `connect` returns once data transfer is on (or the socket is up without STARTDT on connect) |
+| `start_dt()` / `stop_dt()` | STARTDT or STOPDT, waiting up to t1 for the confirmation |
+| `send_hex("64 01 06 00 01 00 00 00 00 14")` | any ASDU, in hex |
+| `interrogation(qoi)`, `counter_interrogation(rqt)`, `read(ioa)`, `clock_sync()` | system commands, cause act, to the profile's CA |
+| `single_command(ioa, on, select)`, `double_command(ioa, on, select)` | process commands |
+| `setpoint_scaled(ioa, value)`, `setpoint_float(ioa, value)` | set points |
+| `wait_for(type, cause, timeout_ms)` | the next received ASDU of that type and cause, as a map: `type`, `type_name`, `cause`, `negative`, `test`, `ca`, `objects` (each with `ioa`, `value`, `quality`); fails after the timeout |
+| `point(ca, ioa)` | the latest value as the Points view shows it, or `()` |
+| `sleep(ms)`, `log(text)`, `expect(condition, message)` | wait; write to the log; fail with `message` unless `condition` holds |
+
+```rhai
+connect();
+interrogation(20);
+expect(!wait_for(100, 7, 5000).negative, "interrogation refused");
+wait_for(100, 10, 5000);
+expect(point(1, 101) == "2000", "IOA 101 should read 2000");
+```
+
 ## Build
 
 ```sh
@@ -107,7 +145,7 @@ zenith-iec104's own server; no hardware is needed.
 Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 Not yet in this version: receiving uploaded files in the simulator,
-scripting and redundancy groups.
+a script window in the GUI and redundancy groups.
 
 ## Disclaimer
 
