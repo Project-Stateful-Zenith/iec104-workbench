@@ -397,6 +397,8 @@ impl App {
     fn telegram_table(&mut self, ui: &mut Ui) {
         let mut clicked = None;
         let mut opened = None;
+        // Selectable labels would take the clicks meant for the row.
+        ui.style_mut().interaction.selectable_labels = false;
         let row_height = ui.text_style_height(&egui::TextStyle::Monospace) + 4.0;
         let mut table = TableBuilder::new(ui)
             .striped(true)
@@ -565,14 +567,13 @@ impl eframe::App for App {
         self.disconnect();
     }
 
-    fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
-        let ctx = ui.ctx().clone();
+    fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
         self.drain();
-        egui::Panel::top("menu").show(ui, |ui| {
+        egui::TopBottomPanel::top("menu").show(ctx, |ui| {
             self.menu(ui);
-            self.connection_bar(ui, &ctx);
+            self.connection_bar(ui, ctx);
         });
-        egui::Panel::bottom("status").show(ui, |ui| {
+        egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label(&self.status);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -580,10 +581,10 @@ impl eframe::App for App {
                 });
             });
         });
-        egui::Panel::right("send")
+        egui::SidePanel::right("send")
             .resizable(true)
-            .default_size(320.0)
-            .show(ui, |ui| {
+            .default_width(320.0)
+            .show(ctx, |ui| {
                 ui.heading("Send");
                 let send_ctx = commands::Context {
                     sizes: self.sizes(),
@@ -603,16 +604,16 @@ impl eframe::App for App {
             && let Some(t) = self.selected.and_then(|i| self.telegrams.get(i))
         {
             let details = t.details(self.sizes());
-            egui::Panel::bottom("detail")
+            egui::TopBottomPanel::bottom("detail")
                 .resizable(true)
-                .default_size(220.0)
-                .show(ui, |ui| {
+                .default_height(220.0)
+                .show(ctx, |ui| {
                     egui::ScrollArea::vertical().show(ui, |ui| {
                         ui.label(RichText::new(details).monospace());
                     });
                 });
         }
-        egui::CentralPanel::default().show(ui, |ui| {
+        egui::CentralPanel::default().show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut self.view, View::Telegrams, "Telegrams");
                 ui.selectable_value(
@@ -630,8 +631,8 @@ impl eframe::App for App {
                 View::Points => self.points_table(ui),
             }
         });
-        self.settings_window(&ctx);
-        self.detail_windows(&ctx);
+        self.settings_window(ctx);
+        self.detail_windows(ctx);
     }
 }
 
