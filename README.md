@@ -98,6 +98,8 @@ cargo test
 Rust 1.88 or newer. The tests include an end-to-end run against
 zenith-iec104's own server; no hardware is needed.
 
+Changes are listed in [CHANGELOG.md](CHANGELOG.md).
+
 Not yet in this version: file transfer workflows (the F_* types decode and
 can be sent as hex), scripting and redundancy groups.
 
