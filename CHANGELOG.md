@@ -6,6 +6,11 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Simulator points carry the NT, SB, BL and OV quality flags besides IV,
+  set in the Station table's Quality column and kept in profiles (#24).
+
 ### Fixed
 
 - The simulator's point table reads bitstrings by the send forms' rule, so

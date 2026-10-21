@@ -54,15 +54,35 @@ impl Kind {
             Self::Counter => None,
         }
     }
+
+    /// Whether the element's quality has an `OV` bit.
+    pub const fn overflows(self) -> bool {
+        matches!(
+            self,
+            Self::Step | Self::Bitstring | Self::Normalized | Self::Scaled | Self::Float
+        )
+    }
 }
 
 /// A point of the simulated station. `value` is text so the table can edit it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "one per quality flag and option"
+)]
 pub struct SimPoint {
     pub ioa: u32,
     pub kind: Kind,
     pub value: String,
     pub invalid: bool,
+    #[serde(default)]
+    pub not_topical: bool,
+    #[serde(default)]
+    pub substituted: bool,
+    #[serde(default)]
+    pub blocked: bool,
+    #[serde(default)]
+    pub overflow: bool,
     /// Interrogation group 1–16, 0 for station interrogation only.
     pub group: u8,
     pub tagged: bool,
@@ -76,6 +96,10 @@ impl SimPoint {
             kind: Kind::Single,
             value: "0".into(),
             invalid: false,
+            not_topical: false,
+            substituted: false,
+            blocked: false,
+            overflow: false,
             group: 0,
             tagged: true,
             commands: false,
@@ -125,7 +149,10 @@ impl SimPoint {
     pub fn quality(&self) -> Quality {
         Quality {
             invalid: self.invalid,
-            ..Quality::default()
+            not_topical: self.not_topical,
+            substituted: self.substituted,
+            blocked: self.blocked,
+            overflow: self.kind.overflows().then_some(self.overflow),
         }
     }
 }
@@ -768,6 +795,8 @@ mod tests {
             ..Forms::default()
         };
 
+        let flagged = flagged(settings.station[1].clone());
+
         let mut points = Points::default();
         let deadline = Instant::now() + Duration::from_secs(10);
         let mut step = 0;
@@ -790,6 +819,10 @@ mod tests {
                         step = 2;
                     }
                     if step == 2 && points.rows[&(1, 10)].cause == "retrem" {
+                        simulator.report(&flagged).unwrap();
+                        step = 3;
+                    }
+                    if step == 3 && points.rows[&(1, 11)].cause == "spont" {
                         break;
                     }
                 }
@@ -802,6 +835,7 @@ mod tests {
         assert_eq!(points.rows[&(1, 11)].value, "-7");
         assert_eq!(points.rows[&(1, 10)].value, "OFF");
         assert_eq!(points.rows[&(1, 10)].cause, "retrem");
+        assert_eq!(points.rows[&(1, 11)].quality, "IV NT SB BL OV");
         assert!(
             tapped
                 .iter()
@@ -814,6 +848,39 @@ mod tests {
                 value: Value::Single(false)
             }
         )));
+    }
+
+    fn flagged(point: SimPoint) -> SimPoint {
+        SimPoint {
+            invalid: true,
+            not_topical: true,
+            substituted: true,
+            blocked: true,
+            overflow: true,
+            ..point
+        }
+    }
+
+    #[test]
+    fn quality_maps_every_flag() {
+        let flagged = |kind| {
+            flagged(SimPoint {
+                kind,
+                ..SimPoint::new(1)
+            })
+        };
+        assert_eq!(
+            flagged(Kind::Float).quality(),
+            Quality {
+                invalid: true,
+                not_topical: true,
+                substituted: true,
+                blocked: true,
+                overflow: Some(true),
+            }
+        );
+        assert_eq!(flagged(Kind::Single).quality().overflow, None);
+        assert_eq!(SimPoint::new(1).quality(), Quality::default());
     }
 
     #[test]
