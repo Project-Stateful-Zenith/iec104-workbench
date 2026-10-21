@@ -101,6 +101,12 @@ impl App {
         }
     }
 
+    /// Settings that shape the frames (address sizes, link parameters, TLS)
+    /// must not change under a running connection or station.
+    const fn idle(&self) -> bool {
+        self.driver.is_none() && self.simulator.is_none()
+    }
+
     fn sizes(&self) -> iec104::asdu::AddressSizes {
         self.settings
             .sizes()
@@ -268,8 +274,7 @@ impl App {
 
     fn connection_bar(&mut self, ui: &mut Ui, ctx: &Context) {
         ui.horizontal(|ui| {
-            let idle = self.driver.is_none() && self.simulator.is_none();
-            ui.add_enabled_ui(idle, |ui| {
+            ui.add_enabled_ui(self.idle(), |ui| {
                 let before = self.mode;
                 egui::ComboBox::from_id_salt("mode")
                     .width(100.0)
@@ -677,7 +682,10 @@ impl App {
     fn menu(&mut self, ui: &mut Ui) {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
-                if ui.button("Open profile…").clicked() {
+                if ui
+                    .add_enabled(self.idle(), egui::Button::new("Open profile…"))
+                    .clicked()
+                {
                     if let Some(path) = rfd::FileDialog::new()
                         .add_filter("Profile", &["toml"])
                         .pick_file()
@@ -775,7 +783,7 @@ impl App {
     }
 
     fn settings_window(&mut self, ctx: &Context) {
-        let editable = self.driver.is_none();
+        let editable = self.idle();
         let s = &mut self.settings;
         egui::Window::new("Settings")
             .open(&mut self.show_settings)
@@ -844,7 +852,7 @@ impl App {
                     }
                 });
                 if !editable {
-                    ui.label("Disconnect to change settings.");
+                    ui.label("Disconnect or stop the simulator to change settings.");
                 }
             });
     }

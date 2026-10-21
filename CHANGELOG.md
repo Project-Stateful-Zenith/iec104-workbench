@@ -6,9 +6,11 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-
 ### Fixed
 
+- Opening a profile and the settings window are locked while connected or
+  while the simulator runs: new address sizes under a running link could
+  send a command to another object (#2).
 - TLS checks that the station's certificate names the host dialed, as the
   library does by default; it was off unless ticked (#1).
 
