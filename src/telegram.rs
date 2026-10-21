@@ -372,6 +372,44 @@ pub fn save(path: &Path, telegrams: &[Telegram]) -> Result<(), String> {
 
 const SIZES: &str = "# sizes";
 
+/// Each telegram's time, direction and summary, then its layered details.
+pub fn export_text(telegrams: &[&Telegram]) -> String {
+    let mut text = String::new();
+    for t in telegrams {
+        let _ = writeln!(
+            text,
+            "{} {} {}\n{}",
+            t.at.format("%F %T%.3f"),
+            t.dir.label(),
+            t.summary,
+            t.details()
+        );
+    }
+    text
+}
+
+/// One object per telegram; the data unit fields are null on S and U frames.
+pub fn export_json(telegrams: &[&Telegram]) -> String {
+    let list: Vec<_> = telegrams
+        .iter()
+        .map(|t| {
+            serde_json::json!({
+                "time": t.at.to_rfc3339(),
+                "dir": t.dir.label(),
+                "hex": hex(&t.bytes),
+                "type_id": t.header.map(|h| h.type_id.to_u8()),
+                "type_name": t.header.map(|h| h.type_id.name()),
+                "cause": t.header.map(|h| h.cause.to_u8()),
+                "cause_name": t.header.map(|h| cause_name(h.cause)),
+                "ca": t.header.map(|h| h.common_address),
+                "ioas": t.ioas,
+                "summary": t.summary,
+            })
+        })
+        .collect();
+    serde_json::to_string_pretty(&list).unwrap_or_default()
+}
+
 /// Reads a recording [`save`] wrote. Telegrams before any `# sizes` line, as
 /// in recordings from before it existed, are read with `sizes`.
 pub fn load(path: &Path, mut sizes: AddressSizes) -> Result<Vec<Telegram>, String> {
@@ -490,6 +528,34 @@ mod tests {
         assert_eq!(back[0].sizes, narrow);
         assert_eq!(back[0].header.unwrap().common_address, 7);
         assert_eq!(back[0].ioas, [0x1234]);
+    }
+
+    #[test]
+    fn exports_text_and_json() {
+        let at = Local.timestamp_millis_opt(0).unwrap();
+        let t = Telegram::new(at, Dir::Rx, MEASURED.to_vec(), SIZES);
+        let text = export_text(&[&t]);
+        assert!(
+            text.starts_with(&format!("{} RX I N(S)=1", at.format("%F %T%.3f"))),
+            "{text}"
+        );
+        assert!(text.contains("\nASDU  0B 01 03 00 0C 00"), "{text}");
+        let json: serde_json::Value = serde_json::from_str(&export_json(&[&t])).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!([{
+                "time": at.to_rfc3339(),
+                "dir": "RX",
+                "hex": hex(&MEASURED),
+                "type_id": 11,
+                "type_name": "M_ME_NB_1",
+                "cause": 3,
+                "cause_name": "spont",
+                "ca": 12,
+                "ioas": [0x3010],
+                "summary": t.summary,
+            }])
+        );
     }
 
     #[test]

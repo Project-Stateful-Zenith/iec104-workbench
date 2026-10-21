@@ -54,7 +54,7 @@ What it covers:
   type, cause, direction and category; a detail pane and any number of detail windows
   with the APCI, the data unit identifier and every information object;
   copy as hex, as a C array or as the decoded line; record to a file and
-  open it again.
+  open it again; export the shown telegrams as text or JSON.
 - **Points**: value, quality (IV NT SB BL OV), time tag, cause and update
   count per CA and object address; export to CSV.
 - **Send**: single, double and regulating step commands, set points

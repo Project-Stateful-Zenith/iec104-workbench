@@ -42,6 +42,9 @@ follow [Semantic Versioning](https://semver.org/).
   member is a manual switchover; switchovers show in the status bar, data
   a failed started connection left unconfirmed is sent again on the next
   started one, and the telegram list has a Conn column.
+- Telegrams → Export as text… and Export as JSON… write the telegrams the
+  list shows: as text with each telegram's details, or as JSON with time,
+  direction, octets, type, cause, CA, object addresses and summary (#34).
 
 ### Fixed
 
