@@ -4,8 +4,11 @@ use std::pin::Pin;
 use std::sync::mpsc;
 use std::sync::{Arc, OnceLock};
 use std::task::{Context, Poll};
+use std::time::Duration;
 
-use iec104::asdu::{Cause, DoubleCommandState, DoublePointState, Nof, Nva, Quality, Value};
+use iec104::asdu::{
+    Cause, DoubleCommandState, DoublePointState, Nof, Nva, Point, Qds, Quality, Value,
+};
 use iec104::ct::{Command, CommandMode, CommandValue, Family};
 use iec104_tls::TlsConfig;
 use iec104_tokio::Event;
@@ -15,6 +18,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::runtime::Runtime;
 
+use crate::commands::{Forms, MonitorKind, Tab};
 use crate::driver::{Notice, NoticeKind};
 use crate::settings::Settings;
 
@@ -83,6 +87,9 @@ pub struct SimPoint {
     pub blocked: bool,
     #[serde(default)]
     pub overflow: bool,
+    /// Seconds between cyclic sends of the point (cause 1), 0 for none.
+    #[serde(default)]
+    pub period: u32,
     /// Interrogation group 1–16, 0 for station interrogation only.
     pub group: u8,
     pub tagged: bool,
@@ -100,6 +107,7 @@ impl SimPoint {
             substituted: false,
             blocked: false,
             overflow: false,
+            period: 0,
             group: 0,
             tagged: true,
             commands: false,
@@ -277,7 +285,8 @@ impl Simulator {
     ) -> Result<Self, String> {
         let wake: Wake = Arc::new(wake);
         let mut config = ServerConfig::new(settings.common_address);
-        config.sizes = settings.sizes()?;
+        let config_sizes = settings.sizes()?;
+        config.sizes = config_sizes;
         config.link = settings.link()?;
         if settings.select_before_execute {
             config.command_mode = CommandMode::SelectAndExecute;
@@ -327,6 +336,15 @@ impl Simulator {
             Ok::<_, String>((server, listener))
         })?;
         let _ = cell.set(server.clone());
+        for point in settings.station.iter().filter(|p| p.period > 0) {
+            let ctx = crate::commands::Context {
+                sizes: config_sizes,
+                common_address: settings.common_address,
+                originator: 0,
+            };
+            let period = Duration::from_secs(point.period.into());
+            runtime.spawn(cyclic(server.clone(), point.ioa, period, ctx));
+        }
         runtime.spawn(serve(listener, server.clone(), tls, notices, wake));
         Ok(Self { runtime, server })
     }
@@ -349,6 +367,60 @@ impl Simulator {
     }
 }
 
+/// Sends the point as the server holds it, so a reported edit goes out too.
+/// `Server::report_with` takes event causes only, so the ASDU goes to the
+/// driver underneath, which puts it on the started connection.
+async fn cyclic(server: Server, ioa: u32, period: Duration, ctx: crate::commands::Context) {
+    let mut ticks = tokio::time::interval(period);
+    ticks.tick().await;
+    loop {
+        ticks.tick().await;
+        let Ok(point) = server.point(ioa).await else {
+            return;
+        };
+        // Refused while no client has started data transfer.
+        if let Ok(asdu) = cyclic_asdu(&ctx, ioa, &point) {
+            let _ = server.handle().send_asdu(0, asdu).await;
+        }
+    }
+}
+
+fn cyclic_asdu(ctx: &crate::commands::Context, ioa: u32, point: &Point) -> Result<Vec<u8>, String> {
+    let q = point.quality.unwrap_or_default();
+    let mut forms = Forms {
+        tab: Tab::Monitor,
+        cause: Cause::Periodic.to_u8(),
+        ioa: ioa.to_string(),
+        value: value_text(&point.value),
+        quality: Qds {
+            overflow: q.overflow.unwrap_or(false),
+            blocked: q.blocked,
+            substituted: q.substituted,
+            not_topical: q.not_topical,
+            invalid: q.invalid,
+        },
+        ..Forms::default()
+    };
+    forms.monitor = match point.value {
+        Value::Single(on) => {
+            forms.on = on;
+            MonitorKind::Single
+        }
+        Value::Double(state) => {
+            forms.double = state;
+            MonitorKind::Double
+        }
+        Value::StepPosition { .. } => MonitorKind::Step,
+        Value::Bitstring(_) => MonitorKind::Bitstring,
+        Value::Normalized(_) => MonitorKind::Normalized,
+        Value::Scaled(_) => MonitorKind::Scaled,
+        Value::Float(_) => MonitorKind::Float,
+        Value::Counter { .. } => MonitorKind::Counter,
+        other => return Err(format!("{other:?}")),
+    };
+    forms.build(ctx)
+}
+
 async fn serve(
     listener: TcpListener,
     server: Server,
@@ -359,7 +431,7 @@ async fn serve(
     loop {
         let Ok((tcp, peer)) = listener.accept().await else {
             // A lasting error (out of file descriptors) would otherwise spin.
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            tokio::time::sleep(Duration::from_millis(100)).await;
             continue;
         };
         let _ = tcp.set_nodelay(true);
@@ -951,6 +1023,66 @@ mod tests {
             lines,
             [format!("{peer} connected"), format!("{peer} disconnected")]
         );
+    }
+
+    #[test]
+    fn sends_the_current_value_cyclically() {
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let point = SimPoint {
+            kind: Kind::Scaled,
+            value: "-7".into(),
+            period: 1,
+            ..SimPoint::new(12)
+        };
+        let settings = Settings {
+            port,
+            station: vec![point.clone()],
+            ..Settings::default()
+        };
+        let (station_tx, _station_rx) = mpsc::channel();
+        let simulator = Simulator::start(&settings, station_tx, || {}).unwrap();
+        let (tx, rx) = mpsc::channel();
+        let driver = Driver::connect(&settings, tx, || {}).unwrap();
+        let sizes = settings.sizes().unwrap();
+        let periodic = crate::telegram::cause_name(Cause::Periodic);
+        let mut points = Points::default();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            let Ok(notice) = rx.recv_timeout(Duration::from_millis(100)) else {
+                continue;
+            };
+            match notice.kind {
+                NoticeKind::Event(Event::State {
+                    state: State::Started,
+                    ..
+                }) => {
+                    let edited = SimPoint {
+                        value: "5".into(),
+                        ..point.clone()
+                    };
+                    simulator.report(&edited).unwrap();
+                }
+                NoticeKind::Event(Event::Asdu { asdu, .. }) => {
+                    points.apply(&asdu, sizes, notice.at);
+                    if points
+                        .rows
+                        .get(&(1, 12))
+                        .is_some_and(|r| r.cause == periodic)
+                    {
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        driver.shutdown();
+        simulator.shutdown();
+        assert_eq!(points.rows[&(1, 12)].cause, periodic);
+        assert_eq!(points.rows[&(1, 12)].value, "5");
     }
 
     #[test]

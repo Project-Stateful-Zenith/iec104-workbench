@@ -65,10 +65,13 @@ What it covers:
 - **Simulator**: switch the mode to Simulator and the workbench listens as
   a controlled station, over TCP or mutual TLS. It answers interrogation,
   counter interrogation, read, clock synchronisation and test commands from
-  its points, sends a value you edit as a spontaneous event, takes commands
-  on the points you mark (directly or by select and execute), and can echo
-  a command's result as return information. It serves files too: a call
-  directory lists them and a client can download them. Every frame goes to the telegram list.
+  its points, sends a value you edit as a spontaneous event, sends points
+  cyclically (cause 1) at a period you set, takes commands on the points
+  you mark (directly or by select and execute), and can echo a command's
+  result as return information. Each point carries the IV, NT, SB, BL and
+  OV quality flags you tick. It serves files too: a call directory lists
+  them and a client can download them. The log shows clients connecting
+  and disconnecting, and every frame goes to the telegram list.
 - **Profiles**: all settings, simulator points included, saved and loaded
   as TOML; the last ones are remembered.
 

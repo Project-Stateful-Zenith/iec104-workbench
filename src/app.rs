@@ -379,12 +379,13 @@ impl App {
         let height = ui.available_height() - 180.0;
         TableBuilder::new(ui)
             .striped(true)
-            .columns(Column::auto(), 7)
+            .columns(Column::auto(), 8)
             .column(Column::remainder())
             .max_scroll_height(height)
             .header(20.0, |mut header| {
                 for title in [
-                    "IOA", "Type", "Value", "Quality", "Group", "Time tag", "Commands", "",
+                    "IOA", "Type", "Value", "Quality", "Cycle s", "Group", "Time tag", "Commands",
+                    "",
                 ] {
                     header.col(|ui| {
                         ui.strong(title);
@@ -420,20 +421,13 @@ impl App {
                                 report = Some(i);
                             }
                         });
+                        row.col(|ui| quality_flags(ui, p));
                         row.col(|ui| {
-                            ui.spacing_mut().item_spacing.x = 2.0;
-                            ui.spacing_mut().icon_spacing = 2.0;
-                            let element = p.kind != Kind::Counter;
-                            let overflows = p.kind.overflows();
-                            for (on, label, possible) in [
-                                (&mut p.invalid, "IV", true),
-                                (&mut p.not_topical, "NT", element),
-                                (&mut p.substituted, "SB", element),
-                                (&mut p.blocked, "BL", element),
-                                (&mut p.overflow, "OV", overflows),
-                            ] {
-                                ui.add_enabled(possible, egui::Checkbox::new(on, label));
-                            }
+                            ui.add_enabled(
+                                !running,
+                                egui::DragValue::new(&mut p.period).range(0..=86_400),
+                            )
+                            .on_hover_text("Seconds between cyclic sends (cause 1), 0 for none");
                         });
                         row.col(|ui| {
                             ui.add_enabled(
@@ -1189,4 +1183,22 @@ fn row_menu(ui: &mut Ui, t: &Telegram) -> bool {
         ui.close();
     }
     open
+}
+
+fn quality_flags(ui: &mut Ui, p: &mut SimPoint) {
+    let element = p.kind != Kind::Counter;
+    let overflows = p.kind.overflows();
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        ui.spacing_mut().icon_spacing = 2.0;
+        for (on, label, possible) in [
+            (&mut p.invalid, "IV", true),
+            (&mut p.not_topical, "NT", element),
+            (&mut p.substituted, "SB", element),
+            (&mut p.blocked, "BL", element),
+            (&mut p.overflow, "OV", overflows),
+        ] {
+            ui.add_enabled(possible, egui::Checkbox::new(on, label));
+        }
+    });
 }
