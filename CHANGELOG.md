@@ -12,6 +12,9 @@ follow [Semantic Versioning](https://semver.org/).
   set in the Station table's Quality column and kept in profiles (#24).
 - The simulator log shows `<peer> disconnected` when a client goes away
   (#28).
+- Simulator points can be sent cyclically (cause 1): set a period in
+  seconds in the Station table's Cycle column; it is kept in profiles and
+  sends the point's current value, edits included (#35).
 
 ### Fixed
 
