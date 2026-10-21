@@ -6,6 +6,11 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- The connection bar shows V(S), V(R) and the number of sent I-frames not
+  yet acknowledged, followed from the traced frames (#22).
+
 ### Fixed
 
 - The simulator's point table reads bitstrings by the send forms' rule, so
