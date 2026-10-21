@@ -880,6 +880,13 @@ impl App {
                     }
                     ui.close();
                 }
+                for (label, extension) in [("Export as text…", "txt"), ("Export as JSON…", "json")]
+                {
+                    if ui.button(label).clicked() {
+                        self.export(extension);
+                        ui.close();
+                    }
+                }
                 if ui.button("Open recording…").clicked() {
                     if let Some(path) = rfd::FileDialog::new()
                         .add_filter("Log", &["log"])
@@ -917,6 +924,30 @@ impl App {
                 }
             });
         });
+    }
+
+    /// Exports the telegrams the filter shows.
+    fn export(&mut self, extension: &str) {
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter(extension, &[extension])
+            .save_file()
+        else {
+            return;
+        };
+        let shown: Vec<&Telegram> = self
+            .shown
+            .iter()
+            .filter_map(|&i| self.telegrams.get(i))
+            .collect();
+        let text = if extension == "json" {
+            crate::telegram::export_json(&shown)
+        } else {
+            crate::telegram::export_text(&shown)
+        };
+        self.status = std::fs::write(&path, text).map_or_else(
+            |e| format!("{}: {e}", path.display()),
+            |()| format!("{} telegrams exported", shown.len()),
+        );
     }
 
     fn load_recording(&mut self, path: &std::path::Path) {
