@@ -267,14 +267,9 @@ impl App {
 
     fn start_simulator(&mut self, ctx: &Context) {
         let wake = ctx.clone();
-        match Simulator::start(
-            &self.settings,
-            self.settings.echo,
-            self.sender.clone(),
-            move || {
-                wake.request_repaint();
-            },
-        ) {
+        match Simulator::start(&self.settings, self.sender.clone(), move || {
+            wake.request_repaint();
+        }) {
             Ok(simulator) => {
                 self.simulator = Some(simulator);
                 self.status = format!("listening on {}", self.settings.address());

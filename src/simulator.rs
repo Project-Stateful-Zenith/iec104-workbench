@@ -245,7 +245,6 @@ pub struct Simulator {
 impl Simulator {
     pub fn start(
         settings: &Settings,
-        echo: bool,
         notices: mpsc::Sender<Notice>,
         wake: impl Fn() + Send + Sync + 'static,
     ) -> Result<Self, String> {
@@ -290,7 +289,7 @@ impl Simulator {
             server: Arc::clone(&cell),
             notices: notices.clone(),
             wake: Arc::clone(&wake),
-            echo,
+            echo: settings.echo,
         };
         let address = settings.address();
         let (server, listener) = runtime.block_on(async {
@@ -512,7 +511,7 @@ mod tests {
             ..Settings::default()
         };
         let (station_tx, _station_rx) = mpsc::channel();
-        let simulator = Simulator::start(&settings, true, station_tx, || {}).unwrap();
+        let simulator = Simulator::start(&settings, station_tx, || {}).unwrap();
         let (tx, rx) = mpsc::channel();
         let driver = Driver::connect(&settings, tx, || {}).unwrap();
         let ctx = SendContext {
@@ -600,7 +599,7 @@ mod tests {
             ..Settings::default()
         };
         let (station_tx, _station_rx) = mpsc::channel();
-        let simulator = Simulator::start(&settings, true, station_tx, || {}).unwrap();
+        let simulator = Simulator::start(&settings, station_tx, || {}).unwrap();
         let (tx, rx) = mpsc::channel();
         let driver = Driver::connect(&settings, tx, || {}).unwrap();
         let ctx = SendContext {
@@ -697,7 +696,7 @@ mod tests {
         settings.tls.key = file("key.pem", &key.serialize_pem());
 
         let (station_tx, _station_rx) = mpsc::channel();
-        let simulator = Simulator::start(&settings, true, station_tx, || {}).unwrap();
+        let simulator = Simulator::start(&settings, station_tx, || {}).unwrap();
         let _stalled = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
         std::thread::sleep(Duration::from_millis(100));
 
@@ -749,7 +748,7 @@ mod tests {
             ..Settings::default()
         };
         let (station_tx, station_rx) = mpsc::channel();
-        let simulator = Simulator::start(&settings, true, station_tx, || {}).unwrap();
+        let simulator = Simulator::start(&settings, station_tx, || {}).unwrap();
         let (tx, rx) = mpsc::channel();
         let driver = Driver::connect(&settings, tx, || {}).unwrap();
         let ctx = SendContext {
