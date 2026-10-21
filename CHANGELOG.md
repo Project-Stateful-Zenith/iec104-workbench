@@ -13,7 +13,8 @@ follow [Semantic Versioning](https://semver.org/).
 - TLS settings: a certificate revocation list (optionally checking the
   peer's certificate only, or accepting certificates no list covers), an
   allow-list of peer certificates, the minimum and maximum TLS version and
-  the handshake timeout. Profiles without them keep today's behaviour.
+  the handshake timeout. Profiles without them keep the previous behaviour
+  (#27).
 
 ### Fixed
 
