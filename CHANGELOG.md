@@ -10,6 +10,10 @@ follow [Semantic Versioning](https://semver.org/).
 
 - Simulator points carry the NT, SB, BL and OV quality flags besides IV,
   set in the Station table's Quality column and kept in profiles (#24).
+- TLS settings: a certificate revocation list (optionally checking the
+  peer's certificate only, or accepting certificates no list covers), an
+  allow-list of peer certificates, the minimum and maximum TLS version and
+  the handshake timeout. Profiles without them keep today's behaviour.
 
 ### Fixed
 
