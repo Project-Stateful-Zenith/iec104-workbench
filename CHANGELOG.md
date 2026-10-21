@@ -15,7 +15,8 @@ follow [Semantic Versioning](https://semver.org/).
 - The simulator receives uploaded files: with Accept uploads on, a file a
   client uploads in the control direction is saved as
   `upload-<ioa>-<name>.bin` in the folder set in the Station view (the
-  system temp folder by default) and logged. Both are kept in profiles.
+  system temp folder by default) and logged. Both are kept in profiles
+  (#38).
 
 ### Changed
 
