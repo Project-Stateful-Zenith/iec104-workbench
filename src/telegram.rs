@@ -74,6 +74,8 @@ pub struct Telegram {
     pub header: Option<Header>,
     pub ioas: Vec<u32>,
     pub summary: String,
+    /// The address sizes the telegram was read with.
+    pub sizes: AddressSizes,
 }
 
 impl Telegram {
@@ -100,6 +102,7 @@ impl Telegram {
             header,
             ioas,
             summary,
+            sizes,
         }
     }
 
@@ -110,7 +113,8 @@ impl Telegram {
             .map(|(apdu, _)| apdu.asdu)
     }
 
-    pub fn details(&self, sizes: AddressSizes) -> String {
+    pub fn details(&self) -> String {
+        let sizes = self.sizes;
         let mut out = String::new();
         let _ = writeln!(
             out,
@@ -334,10 +338,23 @@ impl Matcher {
     }
 }
 
-/// Writes one line per telegram: `<unix ms> <TX|RX> <hex>`.
+/// Writes one line per telegram: `<unix ms> <TX|RX> <hex>`, and before the
+/// first and wherever they change, the address sizes the telegrams after it
+/// were read with: `# sizes <CA octets> <IOA octets> <COT octets>`.
 pub fn save(path: &Path, telegrams: &[Telegram]) -> Result<(), String> {
     let mut text = String::new();
+    let mut current = None;
     for t in telegrams {
+        if current != Some(t.sizes) {
+            current = Some(t.sizes);
+            let _ = writeln!(
+                text,
+                "{SIZES} {} {} {}",
+                t.sizes.common_address_octets(),
+                t.sizes.information_object_address_octets(),
+                if t.sizes.originator_address() { 2 } else { 1 }
+            );
+        }
         let _ = writeln!(
             text,
             "{} {} {}",
@@ -349,15 +366,33 @@ pub fn save(path: &Path, telegrams: &[Telegram]) -> Result<(), String> {
     std::fs::write(path, text).map_err(|e| e.to_string())
 }
 
-pub fn load(path: &Path, sizes: AddressSizes) -> Result<Vec<Telegram>, String> {
+const SIZES: &str = "# sizes";
+
+/// Reads a recording [`save`] wrote. Telegrams before any `# sizes` line, as
+/// in recordings from before it existed, are read with `sizes`.
+pub fn load(path: &Path, mut sizes: AddressSizes) -> Result<Vec<Telegram>, String> {
     let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-    text.lines()
-        .enumerate()
-        .filter(|(_, line)| !line.trim().is_empty())
-        .map(|(n, line)| {
-            parse_line(line, sizes).map_err(|e| format!("line {}: {e}", n.saturating_add(1)))
-        })
-        .collect()
+    let mut telegrams = Vec::new();
+    for (n, line) in text.lines().enumerate() {
+        let at = |e: String| format!("line {}: {e}", n.saturating_add(1));
+        if let Some(rest) = line.strip_prefix(SIZES) {
+            sizes = parse_sizes(rest).map_err(at)?;
+        } else if !line.trim().is_empty() {
+            telegrams.push(parse_line(line, sizes).map_err(at)?);
+        }
+    }
+    Ok(telegrams)
+}
+
+fn parse_sizes(text: &str) -> Result<AddressSizes, String> {
+    let numbers: Vec<u8> = text
+        .split_whitespace()
+        .map(|n| n.parse().map_err(|_| format!("bad sizes: {text}")))
+        .collect::<Result<_, _>>()?;
+    let [ca, ioa, cot] = numbers[..] else {
+        return Err(format!("bad sizes: {text}"));
+    };
+    AddressSizes::new(ca, ioa, cot == 2).map_err(|e| format!("{e:?}"))
 }
 
 fn parse_line(line: &str, sizes: AddressSizes) -> Result<Telegram, String> {
@@ -399,7 +434,7 @@ mod tests {
         let t = telegram(&MEASURED);
         assert_eq!(t.category, Category::Monitor);
         assert_eq!(t.ioas, [0x3010]);
-        assert!(t.details(SIZES).contains("M_ME_NB_1"));
+        assert!(t.details().contains("M_ME_NB_1"));
         let u = telegram(&[0x68, 0x04, 0x07, 0x00, 0x00, 0x00]);
         assert_eq!(u.category, Category::Link);
         assert_eq!(u.summary, "U STARTDT act");
@@ -428,6 +463,29 @@ mod tests {
             rx: false,
             ..Filter::default()
         }));
+    }
+
+    #[test]
+    fn a_recording_keeps_its_address_sizes() {
+        // M_SP_NA_1 with a one-octet common address and a two-octet IOA:
+        // header 6 octets less one, IOA 2 octets.
+        let narrow = AddressSizes::new(1, 2, true).unwrap();
+        let asdu = [0x01, 0x01, 0x03, 0x00, 0x07, 0x34, 0x12, 0x01];
+        let mut bytes = vec![0x68, 0x0C, 0x00, 0x00, 0x00, 0x00];
+        bytes.extend(asdu);
+        let path = std::env::temp_dir().join("iec104-workbench-sizes.log");
+        save(
+            &path,
+            &[Telegram::new(Local::now(), Dir::Rx, bytes, narrow)],
+        )
+        .unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let back = load(&path, SIZES).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert!(text.starts_with("# sizes 1 2 2\n"), "{text}");
+        assert_eq!(back[0].sizes, narrow);
+        assert_eq!(back[0].header.unwrap().common_address, 7);
+        assert_eq!(back[0].ioas, [0x1234]);
     }
 
     #[test]
