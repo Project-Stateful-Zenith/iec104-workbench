@@ -392,14 +392,14 @@ async fn admit(
         Some(config) => match iec104_tls::tokio::accept(tcp, config).await {
             Ok(stream) => {
                 server
-                    .attach(Tap::new(stream, notices.clone(), Arc::clone(&wake)))
+                    .attach(Tap::new(stream, peer, notices.clone(), Arc::clone(&wake)))
                     .await
             }
             Err(e) => return log(format!("{peer}: TLS handshake failed: {e}")),
         },
         None => {
             server
-                .attach(Tap::new(tcp, notices.clone(), Arc::clone(&wake)))
+                .attach(Tap::new(tcp, peer, notices.clone(), Arc::clone(&wake)))
                 .await
         }
     };
@@ -410,9 +410,11 @@ async fn admit(
 }
 
 /// Passes a socket through and reports every whole APDU read or written, as
-/// the client's driver does with its trace.
+/// the client's driver does with its trace, and logs the client leaving.
 struct Tap<S> {
     inner: S,
+    peer: SocketAddr,
+    gone: bool,
     notices: mpsc::Sender<Notice>,
     wake: Wake,
     received: Vec<u8>,
@@ -420,9 +422,11 @@ struct Tap<S> {
 }
 
 impl<S> Tap<S> {
-    const fn new(inner: S, notices: mpsc::Sender<Notice>, wake: Wake) -> Self {
+    const fn new(inner: S, peer: SocketAddr, notices: mpsc::Sender<Notice>, wake: Wake) -> Self {
         Self {
             inner,
+            peer,
+            gone: false,
             notices,
             wake,
             received: Vec::new(),
@@ -462,6 +466,22 @@ impl<S> Tap<S> {
         }
         (self.wake)();
     }
+
+    fn leave(&mut self) {
+        if !self.gone {
+            self.gone = true;
+            let line = format!("{} disconnected", self.peer);
+            let _ = self.notices.send(Notice::now(NoticeKind::Log(line)));
+            (self.wake)();
+        }
+    }
+}
+
+// The session may close the socket without reading it to the end.
+impl<S> Drop for Tap<S> {
+    fn drop(&mut self) {
+        self.leave();
+    }
 }
 
 impl<S: AsyncRead + Unpin> AsyncRead for Tap<S> {
@@ -471,14 +491,20 @@ impl<S: AsyncRead + Unpin> AsyncRead for Tap<S> {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
         let before = buf.filled().len();
+        let room = buf.remaining() > 0;
         let poll = Pin::new(&mut self.inner).poll_read(cx, buf);
-        if matches!(poll, Poll::Ready(Ok(())))
-            && let Some(new) = buf.filled().get(before..)
-            && !new.is_empty()
-        {
-            let this = &mut *self;
-            let found = frames(&mut this.received, new);
-            this.emit(found, false);
+        let this = &mut *self;
+        match &poll {
+            Poll::Ready(Ok(())) => match buf.filled().get(before..) {
+                Some(new) if !new.is_empty() => {
+                    let found = frames(&mut this.received, new);
+                    this.emit(found, false);
+                }
+                _ if room => this.leave(),
+                _ => {}
+            },
+            Poll::Ready(Err(_)) => this.leave(),
+            Poll::Pending => {}
         }
         poll
     }
@@ -881,6 +907,50 @@ mod tests {
         );
         assert_eq!(flagged(Kind::Single).quality().overflow, None);
         assert_eq!(SimPoint::new(1).quality(), Quality::default());
+    }
+
+    #[test]
+    fn logs_a_client_leaving_once() {
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let settings = Settings {
+            port,
+            ..Settings::default()
+        };
+        let (station_tx, station_rx) = mpsc::channel();
+        let simulator = Simulator::start(&settings, station_tx, || {}).unwrap();
+        let client = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        let peer = client.local_addr().unwrap();
+        let mut lines = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            if let Ok(Notice {
+                kind: NoticeKind::Log(line),
+                ..
+            }) = station_rx.recv_timeout(Duration::from_millis(100))
+            {
+                if line.ends_with(" connected") {
+                    client.shutdown(std::net::Shutdown::Both).unwrap();
+                }
+                lines.push(line);
+                if lines.len() == 2 {
+                    break;
+                }
+            }
+        }
+        std::thread::sleep(Duration::from_millis(200));
+        simulator.shutdown();
+        lines.extend(station_rx.try_iter().filter_map(|n| match n.kind {
+            NoticeKind::Log(line) => Some(line),
+            _ => None,
+        }));
+        assert_eq!(
+            lines,
+            [format!("{peer} connected"), format!("{peer} disconnected")]
+        );
     }
 
     #[test]

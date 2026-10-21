@@ -10,6 +10,8 @@ follow [Semantic Versioning](https://semver.org/).
 
 - Simulator points carry the NT, SB, BL and OV quality flags besides IV,
   set in the Station table's Quality column and kept in profiles (#24).
+- The simulator log shows `<peer> disconnected` when a client goes away
+  (#28).
 
 ### Fixed
 
