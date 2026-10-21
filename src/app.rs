@@ -384,7 +384,7 @@ impl App {
             .max_scroll_height(height)
             .header(20.0, |mut header| {
                 for title in [
-                    "IOA", "Type", "Value", "IV", "Group", "Time tag", "Commands", "",
+                    "IOA", "Type", "Value", "Quality", "Group", "Time tag", "Commands", "",
                 ] {
                     header.col(|ui| {
                         ui.strong(title);
@@ -421,7 +421,19 @@ impl App {
                             }
                         });
                         row.col(|ui| {
-                            ui.checkbox(&mut p.invalid, "");
+                            ui.spacing_mut().item_spacing.x = 2.0;
+                            ui.spacing_mut().icon_spacing = 2.0;
+                            let element = p.kind != Kind::Counter;
+                            let overflows = p.kind.overflows();
+                            for (on, label, possible) in [
+                                (&mut p.invalid, "IV", true),
+                                (&mut p.not_topical, "NT", element),
+                                (&mut p.substituted, "SB", element),
+                                (&mut p.blocked, "BL", element),
+                                (&mut p.overflow, "OV", overflows),
+                            ] {
+                                ui.add_enabled(possible, egui::Checkbox::new(on, label));
+                            }
                         });
                         row.col(|ui| {
                             ui.add_enabled(
