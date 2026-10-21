@@ -27,6 +27,14 @@ follow [Semantic Versioning](https://semver.org/).
   `examples/smoke.rhai` (#21).
 - The connection bar shows V(S), V(R) and the number of sent I-frames not
   yet acknowledged, followed from the traced frames (#22).
+- The simulator receives uploaded files: with Accept uploads on, a file a
+  client uploads in the control direction is saved as
+  `upload-<ioa>-<name>.bin` in the folder set in the Station view (the
+  system temp folder by default) and logged. Both are kept in profiles.
+
+### Changed
+
+- Built on zenith-iec104 0.36.
 
 ### Fixed
 

@@ -10,6 +10,7 @@ use crate::simulator::{ServedFile, SimPoint};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
+#[expect(clippy::struct_excessive_bools, reason = "one field per checkbox")]
 pub struct Settings {
     pub host: String,
     pub port: u16,
@@ -33,6 +34,10 @@ pub struct Settings {
     pub echo: bool,
     /// Simulator: commands need a select before the execute.
     pub select_before_execute: bool,
+    /// Simulator: receive files the client uploads.
+    pub accept_uploads: bool,
+    /// Simulator: where received files are saved.
+    pub upload_folder: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -114,6 +119,8 @@ impl Default for Settings {
             served: Vec::new(),
             echo: true,
             select_before_execute: false,
+            accept_uploads: false,
+            upload_folder: std::env::temp_dir().display().to_string(),
         }
     }
 }

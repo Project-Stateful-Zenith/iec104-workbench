@@ -373,6 +373,7 @@ impl App {
             ui.add(egui::DragValue::new(&mut self.settings.common_address));
             ui.checkbox(&mut self.settings.echo, "Echo commands");
             ui.checkbox(&mut self.settings.select_before_execute, "Require select");
+            ui.checkbox(&mut self.settings.accept_uploads, "Accept uploads");
         });
         if running {
             if ui.button("Stop").clicked() {
@@ -516,6 +517,12 @@ impl App {
         }
         ui.separator();
         self.served_files(ui);
+        ui.add_enabled_ui(!running, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Save uploads to");
+                ui.text_edit_singleline(&mut self.settings.upload_folder);
+            });
+        });
         ui.separator();
         egui::ScrollArea::vertical()
             .stick_to_bottom(true)

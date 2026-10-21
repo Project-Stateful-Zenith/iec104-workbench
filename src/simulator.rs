@@ -193,6 +193,7 @@ struct Station {
     notices: mpsc::Sender<Notice>,
     wake: Wake,
     echo: bool,
+    upload_folder: std::path::PathBuf,
 }
 
 type Wake = Arc<dyn Fn() + Send + Sync>;
@@ -241,6 +242,26 @@ impl Application for Station {
         (self.wake)();
         true
     }
+
+    fn received_file(&self, ioa: u32, nof: Nof, content: Vec<u8>) {
+        let path = self
+            .upload_folder
+            .join(format!("upload-{ioa}-{}.bin", nof.value));
+        let line = match std::fs::write(&path, &content) {
+            Ok(()) => format!(
+                "upload IOA {ioa} name {}: {} octets saved to {}",
+                nof.value,
+                content.len(),
+                path.display()
+            ),
+            Err(e) => format!(
+                "upload IOA {ioa} name {}: {}: {e}",
+                nof.value,
+                path.display()
+            ),
+        };
+        self.log(line);
+    }
 }
 
 fn returned(command: CommandValue, current: Value) -> Option<Value> {
@@ -288,6 +309,7 @@ impl Simulator {
         let config_sizes = settings.sizes()?;
         config.sizes = config_sizes;
         config.link = settings.link()?;
+        config.accept_uploads = settings.accept_uploads;
         if settings.select_before_execute {
             config.command_mode = CommandMode::SelectAndExecute;
         }
@@ -326,6 +348,7 @@ impl Simulator {
             notices: notices.clone(),
             wake: Arc::clone(&wake),
             echo: settings.echo,
+            upload_folder: settings.upload_folder.clone().into(),
         };
         let address = settings.address();
         let (server, listener) = runtime.block_on(async {
@@ -771,6 +794,73 @@ mod tests {
         let _ = std::fs::remove_file(&source);
         let _ = std::fs::remove_file(&target);
         assert_eq!(fetched, content, "{}", files.status);
+    }
+
+    #[test]
+    fn receives_uploads_from_the_client() {
+        use crate::files::Files;
+
+        let content: Vec<u8> = (0..3000u16)
+            .map(|i| u8::try_from(i % 241).unwrap())
+            .collect();
+        let folder =
+            std::env::temp_dir().join(format!("iec104-workbench-uploads-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let settings = Settings {
+            port,
+            accept_uploads: true,
+            upload_folder: folder.display().to_string(),
+            ..Settings::default()
+        };
+        let (station_tx, station_rx) = mpsc::channel();
+        let simulator = Simulator::start(&settings, station_tx, || {}).unwrap();
+        let (tx, rx) = mpsc::channel();
+        let driver = Driver::connect(&settings, tx, || {}).unwrap();
+        let ctx = SendContext {
+            sizes: settings.sizes().unwrap(),
+            common_address: settings.common_address,
+            originator: 0,
+        };
+        let mut files = Files::default();
+        let mut step = 0;
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline && step < 2 {
+            let Ok(notice) = rx.recv_timeout(Duration::from_millis(100)) else {
+                continue;
+            };
+            match notice.kind {
+                NoticeKind::Event(Event::State {
+                    state: State::Started,
+                    ..
+                }) if step == 0 => {
+                    driver.send(files.upload(&ctx, 40000, 5, content.clone()).unwrap());
+                    step = 1;
+                }
+                NoticeKind::Event(Event::Asdu { asdu, .. }) => {
+                    for reply in files.on_asdu(&asdu) {
+                        driver.send(reply);
+                    }
+                    if step == 1 && !files.busy() {
+                        step = 2;
+                    }
+                }
+                _ => {}
+            }
+        }
+        driver.shutdown();
+        let logged: Vec<_> = station_rx.try_iter().collect();
+        simulator.shutdown();
+        let saved = std::fs::read(folder.join("upload-40000-5.bin"));
+        let _ = std::fs::remove_dir_all(&folder);
+        assert_eq!(saved.unwrap(), content, "{}", files.status);
+        assert!(logged.iter().any(
+            |n| matches!(&n.kind, NoticeKind::Log(line) if line.starts_with("upload IOA 40000 name 5: 3000 octets"))
+        ));
     }
 
     /// Mutual TLS with a throwaway CA, and a first client that connects but
