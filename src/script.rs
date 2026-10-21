@@ -341,12 +341,12 @@ impl Session {
     }
 
     fn start_dt(&mut self) -> Result<(), Fail> {
-        self.driver()?.start();
+        self.driver()?.start(0);
         self.wait_state(State::Started)
     }
 
     fn stop_dt(&mut self) -> Result<(), Fail> {
-        self.driver()?.stop();
+        self.driver()?.stop(0);
         self.wait_state(State::Stopped)
     }
 

@@ -151,109 +151,116 @@ impl App {
             .collect();
     }
 
+    fn on_event(
+        &mut self,
+        event: Event,
+        at: chrono::DateTime<Local>,
+        sizes: iec104::asdu::AddressSizes,
+    ) {
+        match event {
+            Event::Sent { conn, frame } => {
+                if let Some(sequence) = self.sequences.get_mut(conn) {
+                    sequence.trace(Dir::Tx, &frame);
+                }
+                self.push(Telegram {
+                    conn,
+                    ..Telegram::new(at, Dir::Tx, frame, sizes)
+                });
+            }
+            Event::Received { conn, frame } => {
+                if let Some(sequence) = self.sequences.get_mut(conn) {
+                    sequence.trace(Dir::Rx, &frame);
+                }
+                self.push(Telegram {
+                    conn,
+                    ..Telegram::new(at, Dir::Rx, frame, sizes)
+                });
+            }
+            Event::Asdu { asdu, .. } => {
+                for reply in self.files.on_asdu(&asdu) {
+                    if let Some(driver) = &self.driver {
+                        driver.send(reply);
+                    }
+                }
+                self.confirm(&asdu);
+                self.points.apply(&asdu, sizes, at);
+            }
+            Event::State { conn, state } => {
+                if let Some(slot) = self.states.get_mut(conn) {
+                    *slot = Some(state);
+                }
+            }
+            Event::Connecting { conn } => {
+                let address = self.settings.addresses().get(conn).cloned();
+                self.status = format!(
+                    "{}connecting to {}",
+                    self.prefix(conn),
+                    address.unwrap_or_default()
+                );
+            }
+            Event::Connected { conn } => {
+                // A new connection is stopped (5.3) without a State event.
+                if let Some(slot) = self.states.get_mut(conn) {
+                    *slot = Some(State::Stopped);
+                }
+                // Sequence numbers start at 0 on every connection (5.1).
+                if let Some(sequence) = self.sequences.get_mut(conn) {
+                    *sequence = Sequence::default();
+                }
+                self.status = format!("{}connected", self.prefix(conn));
+            }
+            Event::ConnectFailed { conn, error } => {
+                self.status = format!("{}connect failed: {error}", self.prefix(conn));
+            }
+            Event::Disconnected { conn, reason } => {
+                if let Some(slot) = self.states.get_mut(conn) {
+                    *slot = None;
+                }
+                self.status = format!("{}disconnected: {reason}", self.prefix(conn));
+                // The station does not resume a transfer or a select
+                // on the next connection.
+                if !self.states.contains(&Some(State::Started)) {
+                    self.window = None;
+                    self.pending = None;
+                    if self.files.busy() {
+                        self.files.cancel();
+                        self.files.status = format!("stopped, connection lost: {reason}");
+                    }
+                }
+            }
+            Event::Switchover(switchover) => {
+                self.status = match switchover {
+                    Switchover::Automatic {
+                        failed, started, ..
+                    } => {
+                        format!("switchover: conn {failed} failed (t1), conn {started} started")
+                    }
+                    Switchover::NoStoppedConnection { failed, .. } => format!(
+                        "switchover: conn {failed} failed (t1), no stopped connection to start"
+                    ),
+                    Switchover::LeftToTheControllingStation { failed, .. } => {
+                        format!("switchover: conn {failed} failed (t1)")
+                    }
+                };
+            }
+            Event::StartedConnectionFailed { conn, unconfirmed } => {
+                self.status = if unconfirmed > 0 {
+                    format!(
+                        "started conn {conn} failed; its {unconfirmed} unconfirmed ASDUs go again on the next started connection"
+                    )
+                } else {
+                    format!("started conn {conn} failed")
+                };
+            }
+            _ => {}
+        }
+    }
+
     fn drain(&mut self) {
         let sizes = self.sizes();
         while let Ok(notice) = self.notices.try_recv() {
             match notice.kind {
-                NoticeKind::Event(event) => match event {
-                    Event::Sent { conn, frame } => {
-                        if let Some(sequence) = self.sequences.get_mut(conn) {
-                            sequence.trace(Dir::Tx, &frame);
-                        }
-                        self.push(Telegram {
-                            conn,
-                            ..Telegram::new(notice.at, Dir::Tx, frame, sizes)
-                        });
-                    }
-                    Event::Received { conn, frame } => {
-                        if let Some(sequence) = self.sequences.get_mut(conn) {
-                            sequence.trace(Dir::Rx, &frame);
-                        }
-                        self.push(Telegram {
-                            conn,
-                            ..Telegram::new(notice.at, Dir::Rx, frame, sizes)
-                        });
-                    }
-                    Event::Asdu { asdu, .. } => {
-                        for reply in self.files.on_asdu(&asdu) {
-                            if let Some(driver) = &self.driver {
-                                driver.send(reply);
-                            }
-                        }
-                        self.confirm(&asdu);
-                        self.points.apply(&asdu, sizes, notice.at);
-                    }
-                    Event::State { conn, state } => {
-                        if let Some(slot) = self.states.get_mut(conn) {
-                            *slot = Some(state);
-                        }
-                    }
-                    Event::Connecting { conn } => {
-                        let address = self.settings.addresses().get(conn).cloned();
-                        self.status = format!(
-                            "{}connecting to {}",
-                            self.prefix(conn),
-                            address.unwrap_or_default()
-                        );
-                    }
-                    Event::Connected { conn } => {
-                        // A new connection is stopped (5.3) without a State event.
-                        if let Some(slot) = self.states.get_mut(conn) {
-                            *slot = Some(State::Stopped);
-                        }
-                        // Sequence numbers start at 0 on every connection (5.1).
-                        if let Some(sequence) = self.sequences.get_mut(conn) {
-                            *sequence = Sequence::default();
-                        }
-                        self.status = format!("{}connected", self.prefix(conn));
-                    }
-                    Event::ConnectFailed { conn, error } => {
-                        self.status = format!("{}connect failed: {error}", self.prefix(conn));
-                    }
-                    Event::Disconnected { conn, reason } => {
-                        if let Some(slot) = self.states.get_mut(conn) {
-                            *slot = None;
-                        }
-                        self.status = format!("{}disconnected: {reason}", self.prefix(conn));
-                        // The station does not resume a transfer or a select
-                        // on the next connection.
-                        if !self.states.contains(&Some(State::Started)) {
-                            self.window = None;
-                            self.pending = None;
-                            if self.files.busy() {
-                                self.files.cancel();
-                                self.files.status = format!("stopped, connection lost: {reason}");
-                            }
-                        }
-                    }
-                    Event::Switchover(switchover) => {
-                        self.status = match switchover {
-                            Switchover::Automatic {
-                                failed, started, ..
-                            } => {
-                                format!(
-                                    "switchover: conn {failed} failed (t1), conn {started} started"
-                                )
-                            }
-                            Switchover::NoStoppedConnection { failed, .. } => format!(
-                                "switchover: conn {failed} failed (t1), no stopped connection to start"
-                            ),
-                            Switchover::LeftToTheControllingStation { failed, .. } => {
-                                format!("switchover: conn {failed} failed (t1)")
-                            }
-                        };
-                    }
-                    Event::StartedConnectionFailed { conn, unconfirmed } => {
-                        self.status = if unconfirmed > 0 {
-                            format!(
-                                "started conn {conn} failed; its {unconfirmed} unconfirmed ASDUs go again on the next started connection"
-                            )
-                        } else {
-                            format!("started conn {conn} failed")
-                        };
-                    }
-                    _ => {}
-                },
+                NoticeKind::Event(event) => self.on_event(event, notice.at, sizes),
                 NoticeKind::Window(room) => self.window = Some(room),
                 NoticeKind::Error(e) | NoticeKind::Status(e) => self.status = e,
                 NoticeKind::Log(line) => {
@@ -1001,50 +1008,7 @@ impl App {
                         ui.end_row();
                     });
                     if s.tls.enabled {
-                        for (label, path) in [
-                            ("Certificate (PEM)", &mut s.tls.certificate),
-                            ("Private key (PEM)", &mut s.tls.key),
-                            ("CA (PEM)", &mut s.tls.ca),
-                            ("CRL (PEM, optional)", &mut s.tls.crl),
-                            ("Allowed peers (PEM, optional)", &mut s.tls.allowed_peers),
-                        ] {
-                            ui.horizontal(|ui| {
-                                ui.label(label);
-                                ui.text_edit_singleline(path);
-                                if ui.button("…").clicked()
-                                    && let Some(p) = rfd::FileDialog::new().pick_file()
-                                {
-                                    *path = p.display().to_string();
-                                }
-                            });
-                        }
-                        ui.checkbox(&mut s.tls.verify_server_name, "Verify server name");
-                        for (label, version) in [
-                            ("Minimum version", &mut s.tls.min_version),
-                            ("Maximum version", &mut s.tls.max_version),
-                        ] {
-                            ui.horizontal(|ui| {
-                                ui.label(label);
-                                ui.selectable_value(version, TlsVersion::Tls12, "TLS 1.2");
-                                ui.selectable_value(version, TlsVersion::Tls13, "TLS 1.3");
-                            });
-                        }
-                        ui.add_enabled_ui(!s.tls.crl.is_empty(), |ui| {
-                            ui.checkbox(
-                                &mut s.tls.crl_end_entity_only,
-                                "Check revocation of the peer's certificate only",
-                            );
-                            ui.checkbox(
-                                &mut s.tls.allow_unknown_revocation_status,
-                                "Accept certificates no CRL covers",
-                            );
-                        });
-                        ui.horizontal(|ui| {
-                            ui.label("Handshake timeout (s)");
-                            ui.add(
-                                egui::DragValue::new(&mut s.tls.handshake_timeout).range(1..=255),
-                            );
-                        });
+                        tls_settings(ui, &mut s.tls);
                     }
                     if let Err(e) = s.link().and_then(|_| s.sizes()) {
                         ui.colored_label(ui.visuals().error_fg_color, e);
@@ -1387,5 +1351,50 @@ fn quality_flags(ui: &mut Ui, p: &mut SimPoint) {
         ] {
             ui.add_enabled(possible, egui::Checkbox::new(on, label));
         }
+    });
+}
+
+fn tls_settings(ui: &mut Ui, tls: &mut crate::settings::Tls) {
+    for (label, path) in [
+        ("Certificate (PEM)", &mut tls.certificate),
+        ("Private key (PEM)", &mut tls.key),
+        ("CA (PEM)", &mut tls.ca),
+        ("CRL (PEM, optional)", &mut tls.crl),
+        ("Allowed peers (PEM, optional)", &mut tls.allowed_peers),
+    ] {
+        ui.horizontal(|ui| {
+            ui.label(label);
+            ui.text_edit_singleline(path);
+            if ui.button("…").clicked()
+                && let Some(p) = rfd::FileDialog::new().pick_file()
+            {
+                *path = p.display().to_string();
+            }
+        });
+    }
+    ui.checkbox(&mut tls.verify_server_name, "Verify server name");
+    for (label, version) in [
+        ("Minimum version", &mut tls.min_version),
+        ("Maximum version", &mut tls.max_version),
+    ] {
+        ui.horizontal(|ui| {
+            ui.label(label);
+            ui.selectable_value(version, TlsVersion::Tls12, "TLS 1.2");
+            ui.selectable_value(version, TlsVersion::Tls13, "TLS 1.3");
+        });
+    }
+    ui.add_enabled_ui(!tls.crl.is_empty(), |ui| {
+        ui.checkbox(
+            &mut tls.crl_end_entity_only,
+            "Check revocation of the peer's certificate only",
+        );
+        ui.checkbox(
+            &mut tls.allow_unknown_revocation_status,
+            "Accept certificates no CRL covers",
+        );
+    });
+    ui.horizontal(|ui| {
+        ui.label("Handshake timeout (s)");
+        ui.add(egui::DragValue::new(&mut tls.handshake_timeout).range(1..=255));
     });
 }
