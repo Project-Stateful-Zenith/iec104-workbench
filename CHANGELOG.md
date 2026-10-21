@@ -8,6 +8,8 @@ follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The simulator waits 100 ms after a failed accept instead of retrying at
+  once, which spun a core on a lasting error (#7).
 - A file transfer and a pending select + execute stop when the connection
   drops; the Files tab stayed busy until Cancel (#6).
 - Recordings keep their address sizes (`# sizes` lines), and every

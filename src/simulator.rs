@@ -337,6 +337,8 @@ async fn serve(
     };
     loop {
         let Ok((tcp, peer)) = listener.accept().await else {
+            // A lasting error (out of file descriptors) would otherwise spin.
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             continue;
         };
         let _ = tcp.set_nodelay(true);
