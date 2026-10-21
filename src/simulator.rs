@@ -618,6 +618,7 @@ mod tests {
     use crate::commands::{Context as SendContext, Forms, SystemKind, Tab};
     use crate::driver::Driver;
     use crate::points::Points;
+    use crate::settings::tests::{test_pki, tls_settings};
 
     #[test]
     fn select_before_execute() {
@@ -777,59 +778,68 @@ mod tests {
     /// handshake timeout (10 s).
     #[test]
     fn a_stalled_tls_handshake_does_not_block_the_next_client() {
-        use rcgen::{
-            BasicConstraints, CertificateParams, DnType, ExtendedKeyUsagePurpose, IsCa, Issuer,
-            KeyPair, KeyUsagePurpose,
-        };
+        let pki = test_pki("tls-stall");
+        let settings = tls_settings(&pki, "a", free_port());
+        let (station_tx, _station_rx) = mpsc::channel();
+        let simulator = Simulator::start(&settings, station_tx, || {}).unwrap();
+        let _stalled = std::net::TcpStream::connect(("127.0.0.1", settings.port)).unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+        let started = client_starts(&settings, Duration::from_secs(5));
+        simulator.shutdown();
+        let _ = std::fs::remove_dir_all(&pki);
+        assert!(started, "the TLS client started data transfer within 5 s");
+    }
 
-        let ca_key = KeyPair::generate().unwrap();
-        let mut ca = CertificateParams::new(Vec::<String>::new()).unwrap();
-        ca.distinguished_name.push(DnType::CommonName, "test CA");
-        ca.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
-        ca.key_usages = vec![
-            KeyUsagePurpose::KeyCertSign,
-            KeyUsagePurpose::DigitalSignature,
-        ];
-        let ca_pem = ca.self_signed(&ca_key).unwrap().pem();
-        let issuer = Issuer::new(ca, ca_key);
-        let key = KeyPair::generate().unwrap();
-        let mut leaf = CertificateParams::new(vec!["127.0.0.1".to_string()]).unwrap();
-        leaf.extended_key_usages = vec![
-            ExtendedKeyUsagePurpose::ServerAuth,
-            ExtendedKeyUsagePurpose::ClientAuth,
-        ];
-        let leaf_pem = leaf.signed_by(&key, &issuer).unwrap().pem();
-        let dir = std::env::temp_dir().join(format!("iec104-workbench-tls-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let file = |name: &str, text: &str| {
-            let path = dir.join(name);
-            std::fs::write(&path, text).unwrap();
-            path.display().to_string()
-        };
-        let port = std::net::TcpListener::bind("127.0.0.1:0")
+    #[test]
+    fn a_peer_off_the_allow_list_is_refused() {
+        let pki = test_pki("tls-allow");
+        let mut station = tls_settings(&pki, "a", free_port());
+        station.tls.allowed_peers = pki.join("a.pem").display().to_string();
+        let (station_tx, _station_rx) = mpsc::channel();
+        let simulator = Simulator::start(&station, station_tx, || {}).unwrap();
+        let allowed = client_starts(&station, Duration::from_secs(5));
+        let other = client_starts(
+            &tls_settings(&pki, "b", station.port),
+            Duration::from_secs(2),
+        );
+        simulator.shutdown();
+        let _ = std::fs::remove_dir_all(&pki);
+        assert!(allowed, "the listed peer started data transfer");
+        assert!(!other, "the unlisted peer was refused");
+    }
+
+    #[test]
+    fn a_revoked_peer_is_refused() {
+        let pki = test_pki("tls-crl");
+        let mut station = tls_settings(&pki, "a", free_port());
+        station.tls.crl = pki.join("crl.pem").display().to_string();
+        let (station_tx, _station_rx) = mpsc::channel();
+        let simulator = Simulator::start(&station, station_tx, || {}).unwrap();
+        let valid = client_starts(&station, Duration::from_secs(5));
+        let revoked = client_starts(
+            &tls_settings(&pki, "b", station.port),
+            Duration::from_secs(2),
+        );
+        simulator.shutdown();
+        let _ = std::fs::remove_dir_all(&pki);
+        assert!(valid, "the valid peer started data transfer");
+        assert!(!revoked, "the revoked peer was refused");
+    }
+
+    fn free_port() -> u16 {
+        std::net::TcpListener::bind("127.0.0.1:0")
             .unwrap()
             .local_addr()
             .unwrap()
-            .port();
-        let mut settings = Settings {
-            port,
-            ..Settings::default()
-        };
-        settings.tls.enabled = true;
-        settings.tls.ca = file("ca.pem", &ca_pem);
-        settings.tls.certificate = file("cert.pem", &leaf_pem);
-        settings.tls.key = file("key.pem", &key.serialize_pem());
+            .port()
+    }
 
-        let (station_tx, _station_rx) = mpsc::channel();
-        let simulator = Simulator::start(&settings, station_tx, || {}).unwrap();
-        let _stalled = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
-        std::thread::sleep(Duration::from_millis(100));
-
+    fn client_starts(settings: &Settings, within: Duration) -> bool {
         let began = Instant::now();
         let (tx, rx) = mpsc::channel();
-        let driver = Driver::connect(&settings, tx, || {}).unwrap();
+        let driver = Driver::connect(settings, tx, || {}).unwrap();
         let mut started = false;
-        while !started && began.elapsed() < Duration::from_secs(5) {
+        while !started && began.elapsed() < within {
             if let Ok(Notice {
                 kind:
                     NoticeKind::Event(Event::State {
@@ -843,9 +853,7 @@ mod tests {
             }
         }
         driver.shutdown();
-        simulator.shutdown();
-        let _ = std::fs::remove_dir_all(&dir);
-        assert!(started, "the TLS client started data transfer within 5 s");
+        started
     }
 
     #[test]

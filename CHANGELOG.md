@@ -15,6 +15,10 @@ follow [Semantic Versioning](https://semver.org/).
 - Simulator points can be sent cyclically (cause 1): set a period in
   seconds in the Station table's Cycle column; it is kept in profiles and
   sends the point's current value, edits included (#35).
+- TLS settings: a certificate revocation list (optionally checking the
+  peer's certificate only, or accepting certificates no list covers), an
+  allow-list of peer certificates, the minimum and maximum TLS version and
+  the handshake timeout. Profiles without them keep today's behaviour.
 
 ### Fixed
 

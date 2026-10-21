@@ -11,7 +11,7 @@ use crate::commands::{self, Action, Forms};
 use crate::driver::{Driver, Notice, NoticeKind, state_name};
 use crate::files::{Files, entry_time};
 use crate::points::Points;
-use crate::settings::Settings;
+use crate::settings::{Settings, TlsVersion};
 use crate::simulator::{Kind, ServedFile, SimPoint, Simulator, value_text};
 use crate::telegram::{Category, Dir, Filter, MAX_TELEGRAMS, Matcher, Telegram, cause_name, hex};
 
@@ -850,6 +850,8 @@ impl App {
                             ("Certificate (PEM)", &mut s.tls.certificate),
                             ("Private key (PEM)", &mut s.tls.key),
                             ("CA (PEM)", &mut s.tls.ca),
+                            ("CRL (PEM, optional)", &mut s.tls.crl),
+                            ("Allowed peers (PEM, optional)", &mut s.tls.allowed_peers),
                         ] {
                             ui.horizontal(|ui| {
                                 ui.label(label);
@@ -862,6 +864,32 @@ impl App {
                             });
                         }
                         ui.checkbox(&mut s.tls.verify_server_name, "Verify server name");
+                        for (label, version) in [
+                            ("Minimum version", &mut s.tls.min_version),
+                            ("Maximum version", &mut s.tls.max_version),
+                        ] {
+                            ui.horizontal(|ui| {
+                                ui.label(label);
+                                ui.selectable_value(version, TlsVersion::Tls12, "TLS 1.2");
+                                ui.selectable_value(version, TlsVersion::Tls13, "TLS 1.3");
+                            });
+                        }
+                        ui.add_enabled_ui(!s.tls.crl.is_empty(), |ui| {
+                            ui.checkbox(
+                                &mut s.tls.crl_end_entity_only,
+                                "Check revocation of the peer's certificate only",
+                            );
+                            ui.checkbox(
+                                &mut s.tls.allow_unknown_revocation_status,
+                                "Accept certificates no CRL covers",
+                            );
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Handshake timeout (s)");
+                            ui.add(
+                                egui::DragValue::new(&mut s.tls.handshake_timeout).range(1..=255),
+                            );
+                        });
                     }
                     if let Err(e) = s.link().and_then(|_| s.sizes()) {
                         ui.colored_label(ui.visuals().error_fg_color, e);
