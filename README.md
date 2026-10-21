@@ -45,10 +45,13 @@ What it covers:
   connect or manual STARTDT/STOPDT, and a redial every t0; mutual TLS 1.2
   and 1.3 with PEM certificate, key and CA, an optional revocation list
   and peer allow-list, a version range and a handshake timeout; V(S), V(R)
-  and unacknowledged I-frames shown while connected.
-- **Telegrams**: time, direction, type, cause, CA and a one-line decode of
-  every I, S and U frame; filters by CA, object address, type, cause,
-  direction and category; a detail pane and any number of detail windows
+  and unacknowledged I-frames shown while connected; redundancy groups
+  (clause 10): several connections to one station, each member's state
+  shown, manual switchover by STARTDT on a member, and unconfirmed data
+  sent again after a failed started connection.
+- **Telegrams**: time, direction, connection, type, cause, CA and a
+  one-line decode of every I, S and U frame; filters by CA, object address,
+  type, cause, direction and category; a detail pane and any number of detail windows
   with the APCI, the data unit identifier and every information object;
   copy as hex, as a C array or as the decoded line; record to a file and
   open it again.
@@ -151,7 +154,7 @@ zenith-iec104's own server; no hardware is needed.
 
 Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
-Not yet in this version: a script window in the GUI and redundancy groups.
+Not yet in this version: a script window in the GUI.
 
 ## Disclaimer
 

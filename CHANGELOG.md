@@ -36,6 +36,12 @@ follow [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - Built on zenith-iec104 0.36.
+- Redundancy groups (IEC 60870-5-104 clause 10): further `host:port`s to
+  the same station in the settings make the connections one group, one of
+  them started. The bar shows every member's state and STARTDT on a chosen
+  member is a manual switchover; switchovers show in the status bar, data
+  a failed started connection left unconfirmed is sent again on the next
+  started one, and the telegram list has a Conn column.
 
 ### Fixed
 
