@@ -1,5 +1,3 @@
-//! The latest state of every information object the station reported.
-
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::Path;
@@ -26,7 +24,6 @@ pub struct Points {
 }
 
 impl Points {
-    /// Takes every monitored value an ASDU carries; other ASDUs change nothing.
     pub fn apply(&mut self, asdu: &[u8], sizes: AddressSizes, at: DateTime<Local>) {
         let Ok(decoded) = asdu::decode_with(asdu, sizes) else {
             return;
@@ -55,9 +52,6 @@ impl Points {
         }
     }
 
-    /// # Errors
-    ///
-    /// The file cannot be written.
     pub fn save_csv(&self, path: &Path) -> Result<(), String> {
         let mut text = String::from("ca,ioa,type,value,quality,time,cause,updates,received\n");
         for ((ca, ioa), r) in &self.rows {
@@ -102,7 +96,6 @@ pub fn value_text(value: &Value) -> String {
     }
 }
 
-/// The set quality flags, `IV NT SB BL OV`; empty when good.
 pub fn quality_text(q: Quality) -> String {
     [
         (q.invalid, "IV"),

@@ -1,6 +1,3 @@
-//! Every APDU sent or received: its summary columns, the filter over them,
-//! the layered detail view, and the recording file format.
-
 use std::fmt::Write as _;
 use std::path::Path;
 
@@ -23,17 +20,14 @@ impl Dir {
     }
 }
 
-/// What an APDU is, for the category filter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Category {
-    /// S- and U-frames.
     Link,
     Monitor,
     Process,
     System,
     Parameter,
     File,
-    /// An I-frame whose type is unknown or whose header cannot be read.
     Other,
 }
 
@@ -77,9 +71,7 @@ pub struct Telegram {
     pub dir: Dir,
     pub bytes: Vec<u8>,
     pub category: Category,
-    /// I-frame header, when it parses.
     pub header: Option<Header>,
-    /// Address of every information object.
     pub ioas: Vec<u32>,
     pub summary: String,
 }
@@ -111,7 +103,6 @@ impl Telegram {
         }
     }
 
-    /// The I-frame's ASDU octets.
     pub fn asdu(&self) -> Option<&[u8]> {
         apci::parse(&self.bytes)
             .ok()
@@ -119,7 +110,6 @@ impl Telegram {
             .map(|(apdu, _)| apdu.asdu)
     }
 
-    /// The layered breakdown: APCI, data unit identifier, objects.
     pub fn details(&self, sizes: AddressSizes) -> String {
         let mut out = String::new();
         let _ = writeln!(
@@ -196,7 +186,6 @@ impl Telegram {
     }
 }
 
-/// Every object's address, without decoding its elements.
 fn object_addresses(asdu: &[u8], sizes: AddressSizes) -> Vec<u32> {
     asdu::decode_with(asdu, sizes).map_or_else(
         |_| Vec::new(),
@@ -224,11 +213,6 @@ pub fn hex(bytes: &[u8]) -> String {
     out
 }
 
-/// Parses hex octets, ignoring spaces, commas, `0x` prefixes and newlines.
-///
-/// # Errors
-///
-/// A character that is not a hex digit, or an odd number of digits.
 pub fn parse_hex(text: &str) -> Result<Vec<u8>, String> {
     let digits: String = text
         .replace("0x", "")
@@ -256,9 +240,7 @@ pub fn parse_hex(text: &str) -> Result<Vec<u8>, String> {
 pub struct Filter {
     pub ca: String,
     pub ioa: String,
-    /// Comma-separated type identifications.
     pub types: String,
-    /// Comma-separated causes.
     pub causes: String,
     pub tx: bool,
     pub rx: bool,
@@ -279,7 +261,6 @@ impl Default for Filter {
     }
 }
 
-/// A [`Filter`] with its text fields parsed once.
 pub struct Matcher {
     ca: Option<u16>,
     ioa: Option<u32>,
@@ -338,10 +319,6 @@ impl Matcher {
 }
 
 /// Writes one line per telegram: `<unix ms> <TX|RX> <hex>`.
-///
-/// # Errors
-///
-/// The file cannot be written.
 pub fn save(path: &Path, telegrams: &[Telegram]) -> Result<(), String> {
     let mut text = String::new();
     for t in telegrams {
@@ -356,11 +333,6 @@ pub fn save(path: &Path, telegrams: &[Telegram]) -> Result<(), String> {
     std::fs::write(path, text).map_err(|e| e.to_string())
 }
 
-/// Reads a file [`save`] wrote.
-///
-/// # Errors
-///
-/// The file cannot be read, or a line is malformed.
 pub fn load(path: &Path, sizes: AddressSizes) -> Result<Vec<Telegram>, String> {
     let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
     text.lines()

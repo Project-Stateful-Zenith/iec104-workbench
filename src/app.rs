@@ -1,5 +1,3 @@
-//! The main window.
-
 use std::sync::mpsc;
 
 use chrono::Local;
@@ -30,13 +28,11 @@ pub struct App {
     state: Option<State>,
     window: Option<u16>,
     telegrams: Vec<Telegram>,
-    /// Indices into `telegrams` that pass the filter.
     shown: Vec<usize>,
     filter: Filter,
     matcher: Matcher,
     follow: bool,
     selected: Option<usize>,
-    /// Detail windows, by telegram index.
     open: Vec<usize>,
     points: Points,
     view: View,
@@ -636,7 +632,6 @@ impl eframe::App for App {
     }
 }
 
-/// The telegram row's context menu. Returns whether "Open details" was chosen.
 fn row_menu(ui: &mut Ui, t: &Telegram) -> bool {
     if ui.button("Copy hex").clicked() {
         ui.ctx().copy_text(hex(&t.bytes));

@@ -1,6 +1,3 @@
-//! The send forms: process, system and parameter commands, monitor-direction
-//! data and raw hex, each built into ASDU octets by the library's encoder.
-
 use std::str::FromStr;
 use std::time::SystemTime;
 
@@ -17,7 +14,6 @@ use iec104::asdu::{
     R32, Rco, RegulatingStepState, Sco, Siq, Sva, Tsc, Vti,
 };
 
-/// The data unit identifier fields every form shares.
 pub struct Context {
     pub sizes: AddressSizes,
     pub common_address: u16,
@@ -36,7 +32,6 @@ pub enum Tab {
 #[expect(clippy::struct_excessive_bools, reason = "one field per checkbox")]
 pub struct Forms {
     pub tab: Tab,
-    /// Cause of transmission, as a number.
     pub cause: u8,
     pub negative: bool,
     pub test: bool,
@@ -221,8 +216,6 @@ fn parse<T: FromStr>(text: &str, what: &str) -> Result<T, String> {
         .map_err(|_| format!("{what}: not a valid number"))
 }
 
-/// The time-tagged layout `$ta` when `$t`, else the plain `$na`, with the
-/// same elements.
 macro_rules! tagged {
     ($t:expr, $ioa:expr, $ta:ident, $na:ident { $($field:ident),* }) => {
         if $t {
@@ -242,8 +235,6 @@ fn now() -> Result<Cp56Time2a, String> {
 }
 
 impl Forms {
-    /// Draws the active tab's form. Returns the ASDU to send when the user
-    /// presses Send, or why it could not be built.
     pub fn ui(&mut self, ui: &mut Ui, ctx: &Context) -> Option<Result<Vec<u8>, String>> {
         ui.horizontal_wrapped(|ui| {
             for (tab, label) in [
@@ -278,7 +269,6 @@ impl Forms {
         ui.button("Send").clicked().then(|| self.build(ctx))
     }
 
-    /// QOI 20 (station), RQT 5 (general), QRP 1 (general), KPA/QPA 1, else 0.
     const fn default_qualifier(&self) -> &'static str {
         match (self.tab, self.system) {
             (Tab::System, SystemKind::Interrogation) => "20",
@@ -402,11 +392,6 @@ impl Forms {
         ui.button("Send").clicked().then_some(bytes)
     }
 
-    /// Builds the form's ASDU.
-    ///
-    /// # Errors
-    ///
-    /// A field that does not parse, or a value the type cannot carry.
     pub fn build(&mut self, ctx: &Context) -> Result<Vec<u8>, String> {
         let ioa: u32 = parse(&self.ioa, "IOA")?;
         let objects = match self.tab {

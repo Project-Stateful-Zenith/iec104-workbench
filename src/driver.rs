@@ -1,6 +1,3 @@
-//! The link to the station: the library's master driver on a background
-//! Tokio runtime, its events forwarded to the GUI thread.
-
 use std::sync::mpsc;
 
 use chrono::{DateTime, Local};
@@ -12,10 +9,8 @@ use tokio::runtime::Runtime;
 
 use crate::settings::Settings;
 
-/// The one connection a master manager carries here.
 const CONN: usize = 0;
 
-/// What the GUI receives, stamped when it happened.
 pub struct Notice {
     pub at: DateTime<Local>,
     pub kind: NoticeKind,
@@ -23,9 +18,7 @@ pub struct Notice {
 
 pub enum NoticeKind {
     Event(Event),
-    /// Free room in the k window after a frame went out or was acknowledged.
     Window(u16),
-    /// A request the driver refused.
     Error(String),
 }
 
@@ -36,13 +29,6 @@ pub struct Driver {
 }
 
 impl Driver {
-    /// Dials `settings.address()` and keeps redialing every t0 until
-    /// [`Driver::shutdown`]. Notices go to `notices`; `wake` is called after
-    /// each so the GUI repaints.
-    ///
-    /// # Errors
-    ///
-    /// Invalid settings, or a runtime that cannot start.
     pub fn connect(
         settings: &Settings,
         notices: mpsc::Sender<Notice>,
@@ -103,17 +89,14 @@ impl Driver {
         })
     }
 
-    /// Queues an ASDU as an I-frame.
     pub fn send(&self, asdu: Vec<u8>) {
         self.request(move |h| async move { h.send_asdu(CONN, asdu).await });
     }
 
-    /// STARTDT act.
     pub fn start(&self) {
         self.request(|h| async move { h.start(CONN).await });
     }
 
-    /// STOPDT act.
     pub fn stop(&self) {
         self.request(|h| async move { h.stop(CONN).await });
     }
@@ -131,7 +114,6 @@ impl Driver {
         });
     }
 
-    /// Closes the connection and stops the driver.
     pub fn shutdown(self) {
         let handle = self.handle;
         self.runtime
@@ -148,7 +130,6 @@ impl Notice {
     }
 }
 
-/// A short name for a connection state.
 pub const fn state_name(state: State) -> &'static str {
     match state {
         State::Stopped => "stopped",
