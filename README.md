@@ -68,7 +68,8 @@ What it covers:
   its points, sends a value you edit as a spontaneous event, takes commands
   on the points you mark (directly or by select and execute), and can echo
   a command's result as return information. It serves files too: a call
-  directory lists them and a client can download them. Every frame goes to the telegram list.
+  directory lists them and a client can download them; and with Accept
+  uploads on it receives files a client uploads and saves them to a folder. Every frame goes to the telegram list.
 - **Profiles**: all settings, simulator points included, saved and loaded
   as TOML; the last ones are remembered.
 
@@ -106,8 +107,7 @@ zenith-iec104's own server; no hardware is needed.
 
 Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
-Not yet in this version: receiving uploaded files in the simulator,
-scripting and redundancy groups.
+Not yet in this version: scripting and redundancy groups.
 
 ## Disclaimer
 
