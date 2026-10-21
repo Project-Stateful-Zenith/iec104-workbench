@@ -38,7 +38,7 @@ follow [Semantic Versioning](https://semver.org/).
   compact 1/1/2). Find interrogates the broadcast common address and shows
   the CA the station answers with; the status bar hints once per CA when
   received ASDUs carry another CA than the configured one, with a "use CA
-  n" button.
+  n" button (#51).
 
 ### Changed
 
