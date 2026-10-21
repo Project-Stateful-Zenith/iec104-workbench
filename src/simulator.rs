@@ -108,10 +108,9 @@ impl SimPoint {
                 u32::from_str_radix(text.trim_start_matches("0x"), 16).map_err(|_| bad())?,
             ),
             Kind::Normalized => Value::Normalized(
-                text.parse::<f64>()
-                    .ok()
-                    .filter(|v| (-1.0..1.0).contains(v))
-                    .ok_or_else(bad)?,
+                crate::commands::normalized(text)
+                    .map_err(|_| bad())?
+                    .to_scaled(),
             ),
             Kind::Scaled => Value::Scaled(text.parse().map_err(|_| bad())?),
             Kind::Float => Value::Float(text.parse().map_err(|_| bad())?),

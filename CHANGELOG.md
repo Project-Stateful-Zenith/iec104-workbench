@@ -8,6 +8,9 @@ follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Normalized set points, parameters and monitor values outside −1..1 (or
+  not a number) are refused; they were clamped silently, so `5` went out as
+  0.99997 and `nan` as 0 (#3).
 - Opening a profile and the settings window are locked while connected or
   while the simulator runs: new address sizes under a running link could
   send a command to another object (#2).
