@@ -14,7 +14,7 @@ use crate::driver::{Driver, Notice, NoticeKind, state_name};
 use crate::files::{Files, entry_time};
 use crate::link::Sequence;
 use crate::points::Points;
-use crate::settings::{Settings, TlsVersion};
+use crate::settings::{PRESETS, Settings, TlsVersion};
 use crate::simulator::{Kind, ServedFile, SimPoint, Simulator, value_text};
 use crate::telegram::{Category, Dir, Filter, MAX_TELEGRAMS, Matcher, Telegram, cause_name, hex};
 
@@ -72,6 +72,12 @@ pub struct App {
     forms: Forms,
     show_settings: bool,
     status: String,
+    /// A common address the station answered with, offered as "use CA n".
+    suggestion: Option<u16>,
+    /// Common addresses already hinted at, so each is hinted once.
+    hinted: Vec<u16>,
+    /// A broadcast interrogation was sent and its answer is awaited.
+    finding: bool,
 }
 
 impl App {
@@ -108,6 +114,9 @@ impl App {
             forms: Forms::default(),
             show_settings: false,
             status: String::new(),
+            suggestion: None,
+            hinted: Vec::new(),
+            finding: false,
         }
     }
 
@@ -184,6 +193,7 @@ impl App {
                     }
                 }
                 self.confirm(&asdu);
+                self.check_address(&asdu, sizes);
                 self.points.apply(&asdu, sizes, at);
             }
             Event::State { conn, state } => {
@@ -277,6 +287,42 @@ impl App {
         }
     }
 
+    fn check_address(&mut self, asdu: &[u8], sizes: iec104::asdu::AddressSizes) {
+        let Ok(header) = iec104::asdu::Header::parse_with(asdu, sizes) else {
+            return;
+        };
+        let configured = self.settings.common_address;
+        let other = commands::other_station(configured, header.common_address, sizes);
+        if self.finding && header.common_address != sizes.broadcast_common_address() {
+            self.finding = false;
+            self.status = format!("station answers with CA {}", header.common_address);
+            if other.is_none() {
+                self.status.push_str(", as configured");
+            }
+        } else if let Some(ca) = other
+            && !self.hinted.contains(&ca)
+        {
+            self.status = format!("station sends CA {ca}, configured CA {configured}");
+        } else {
+            return;
+        }
+        if let Some(ca) = other {
+            self.hinted.push(ca);
+            self.suggestion = Some(ca);
+        }
+    }
+
+    fn find_station(&mut self) {
+        match commands::find_station(&self.send_ctx()) {
+            Ok(asdu) => {
+                self.finding = true;
+                self.act(Action::Send(asdu));
+                self.status = "interrogating the broadcast CA…".into();
+            }
+            Err(e) => self.status = e,
+        }
+    }
+
     fn confirm(&mut self, asdu: &[u8]) {
         let sizes = self.sizes();
         let Some(pending) = &self.pending else {
@@ -334,6 +380,9 @@ impl App {
                 self.states = vec![None; self.settings.addresses().len()];
                 self.sequences = vec![Sequence::default(); self.states.len()];
                 self.member = 0;
+                self.hinted.clear();
+                self.suggestion = None;
+                self.finding = false;
             }
             Err(e) => self.status = e,
         }
@@ -409,9 +458,9 @@ impl App {
                 ui.add(egui::TextEdit::singleline(&mut self.settings.host).desired_width(140.0));
                 ui.label("Port");
                 ui.add(egui::DragValue::new(&mut self.settings.port));
-                ui.label("CA");
+                ca_label(ui);
             });
-            ui.add(egui::DragValue::new(&mut self.settings.common_address));
+            self.address_field(ui);
             if connected {
                 if ui.button("Disconnect").clicked() {
                     self.disconnect();
@@ -478,6 +527,24 @@ impl App {
         });
     }
 
+    fn address_field(&mut self, ui: &mut Ui) {
+        if ui
+            .add(egui::DragValue::new(&mut self.settings.common_address))
+            .changed()
+        {
+            self.suggestion = None;
+            self.hinted.clear();
+        }
+        let started = self.states.contains(&Some(State::Started));
+        if ui
+            .add_enabled(started, egui::Button::new("Find"))
+            .on_hover_text("Interrogate the broadcast CA to learn the station's CA")
+            .clicked()
+        {
+            self.find_station();
+        }
+    }
+
     fn simulator_bar(&mut self, ui: &mut Ui, ctx: &Context) {
         let running = self.simulator.is_some();
         ui.add_enabled_ui(!running, |ui| {
@@ -485,7 +552,7 @@ impl App {
             ui.add(egui::TextEdit::singleline(&mut self.settings.host).desired_width(140.0));
             ui.label("Port");
             ui.add(egui::DragValue::new(&mut self.settings.port));
-            ui.label("CA");
+            ca_label(ui);
             ui.add(egui::DragValue::new(&mut self.settings.common_address));
             ui.checkbox(&mut self.settings.echo, "Echo commands");
             ui.checkbox(&mut self.settings.select_before_execute, "Require select");
@@ -983,15 +1050,7 @@ impl App {
                         ui.label("Originator address");
                         ui.add(egui::DragValue::new(&mut s.originator));
                         ui.end_row();
-                        ui.label("COT octets");
-                        ui.add(egui::DragValue::new(&mut s.cot_octets).range(1..=2));
-                        ui.end_row();
-                        ui.label("CA octets");
-                        ui.add(egui::DragValue::new(&mut s.ca_octets).range(1..=2));
-                        ui.end_row();
-                        ui.label("IOA octets");
-                        ui.add(egui::DragValue::new(&mut s.ioa_octets).range(1..=3));
-                        ui.end_row();
+                        address_sizes(ui, s);
                         ui.label("k");
                         ui.add(egui::DragValue::new(&mut s.k).range(1..=32767));
                         ui.end_row();
@@ -1304,6 +1363,13 @@ impl eframe::App for App {
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label(&self.status);
+                if let Some(ca) = self.suggestion
+                    && ui.button(format!("use CA {ca}")).clicked()
+                {
+                    self.settings.common_address = ca;
+                    self.suggestion = None;
+                    self.status = format!("CA set to {ca}");
+                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(Local::now().format("%T").to_string());
                 });
@@ -1390,6 +1456,55 @@ fn trend_chart(ui: &mut Ui, points: &Points) {
                 }
             }
         });
+}
+
+fn address_sizes(ui: &mut Ui, s: &mut Settings) {
+    ui.label("Address sizes");
+    egui::ComboBox::from_id_salt("presets")
+        .selected_text(s.preset().unwrap_or("Custom"))
+        .show_ui(ui, |ui| {
+            for (name, octets) in PRESETS {
+                if ui.selectable_label(s.octets() == octets, name).clicked() {
+                    s.set_octets(octets);
+                }
+            }
+            ui.add_enabled(
+                false,
+                egui::Button::selectable(s.preset().is_none(), "Custom"),
+            );
+        });
+    ui.end_row();
+    for (label, value, max, hint) in [
+        (
+            "COT octets",
+            &mut s.cot_octets,
+            2,
+            "2 = with originator address; must match the station",
+        ),
+        (
+            "CA octets",
+            &mut s.ca_octets,
+            2,
+            "1 or 2; must match the station",
+        ),
+        (
+            "IOA octets",
+            &mut s.ioa_octets,
+            3,
+            "1 to 3; must match the station",
+        ),
+    ] {
+        ui.label(label).on_hover_text(hint);
+        ui.add(egui::DragValue::new(value).range(1..=max))
+            .on_hover_text(hint);
+        ui.end_row();
+    }
+}
+
+fn ca_label(ui: &mut Ui) {
+    ui.label("ASDU address (CA)").on_hover_text(
+        "Common address of the station, put in every ASDU sent; its size is set in Settings",
+    );
 }
 
 fn row_menu(ui: &mut Ui, t: &Telegram) -> bool {

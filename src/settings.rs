@@ -129,7 +129,32 @@ impl Default for Settings {
     }
 }
 
+/// Common address sizes: name and (COT, CA, IOA) octets.
+pub const PRESETS: [(&str, (u8, u8, u8)); 3] = [
+    ("IEC 104 standard (COT 2, CA 2, IOA 3)", (2, 2, 3)),
+    ("CA 1 octet (COT 2, CA 1, IOA 3)", (2, 1, 3)),
+    ("Compact (COT 1, CA 1, IOA 2)", (1, 1, 2)),
+];
+
 impl Settings {
+    pub const fn octets(&self) -> (u8, u8, u8) {
+        (self.cot_octets, self.ca_octets, self.ioa_octets)
+    }
+
+    pub const fn set_octets(&mut self, (cot, ca, ioa): (u8, u8, u8)) {
+        self.cot_octets = cot;
+        self.ca_octets = ca;
+        self.ioa_octets = ioa;
+    }
+
+    /// The preset matching the current sizes, `None` for custom ones.
+    pub fn preset(&self) -> Option<&'static str> {
+        PRESETS
+            .iter()
+            .find(|(_, octets)| *octets == self.octets())
+            .map(|(name, _)| *name)
+    }
+
     pub fn address(&self) -> String {
         format!("{}:{}", self.host, self.port)
     }
@@ -205,6 +230,20 @@ pub mod tests {
     use std::path::PathBuf;
 
     use super::*;
+
+    #[test]
+    fn presets_map_both_ways() {
+        let mut settings = Settings::default();
+        assert_eq!(settings.preset(), Some(PRESETS[0].0));
+        for (name, octets) in PRESETS {
+            settings.set_octets(octets);
+            assert_eq!(settings.octets(), octets);
+            assert_eq!(settings.preset(), Some(name));
+            assert!(settings.sizes().is_ok(), "{name}");
+        }
+        settings.set_octets((2, 1, 2));
+        assert_eq!(settings.preset(), None);
+    }
 
     /// A throwaway CA, leaves `a` and `b` for 127.0.0.1, and a CRL revoking `b`, as PEM files.
     pub fn test_pki(name: &str) -> PathBuf {

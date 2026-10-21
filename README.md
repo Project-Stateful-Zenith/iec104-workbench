@@ -44,7 +44,9 @@ What it covers:
 
 - **Connection**: host, port, common address and originator address; cause
   of transmission 1 or 2 octets, common address 1 or 2, object address 1 to
-  3; k, w and t0 to t3, checked against the standard's ranges; STARTDT on
+  3, or a preset; Find learns the station's common address by a broadcast
+  interrogation, and a hint offers the CA the station answers with; k, w
+  and t0 to t3, checked against the standard's ranges; STARTDT on
   connect or manual STARTDT/STOPDT, and a redial every t0; mutual TLS 1.2
   and 1.3 with PEM certificate, key and CA, an optional revocation list
   and peer allow-list, a version range and a handshake timeout; V(S), V(R)
