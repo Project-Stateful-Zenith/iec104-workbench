@@ -11,7 +11,9 @@
 A desktop test client for IEC 60870-5-104, the protocol SCADA control centres
 use to talk to substations and other remote stations over TCP. It connects to
 a controlled station (outstation), shows every frame on the wire, keeps a live
-table of the values the station reports, and sends whatever you build.
+table of the values the station reports, and sends whatever you build. It can
+also be the station itself, as a simulator, and run scripted tests without a
+window.
 
 | View | Use |
 | --- | --- |
@@ -30,8 +32,9 @@ table of the values the station reports, and sends whatever you build.
 
 The protocol is [zenith-iec104](https://github.com/Project-Stateful-Zenith/zenith-iec104):
 its master driver on Tokio carries the link layer (sequence numbers, the k
-and w window, the t0 to t3 timers, TESTFR), and its ASDU codec builds and
-decodes every message. The GUI is [egui](https://github.com/emilk/egui).
+and w window, the t0 to t3 timers, TESTFR), its server runs the simulated
+station, and its ASDU codec builds and decodes every message. The GUI is
+[egui](https://github.com/emilk/egui); scripts run on [Rhai](https://rhai.rs).
 
 The result is one self-contained binary for Windows, macOS and Linux: no
 runtime, no OpenSSL, no GTK. On Linux it loads the system's OpenGL and X11 or
@@ -51,8 +54,9 @@ What it covers:
   sent again after a failed started connection.
 - **Telegrams**: time, direction, connection, type, cause, CA and a
   one-line decode of every I, S and U frame; filters by CA, object address,
-  type, cause, direction and category; a detail pane and any number of detail windows
-  with the APCI, the data unit identifier and every information object;
+  type, cause, direction and category; a detail pane and any number of
+  detail windows with the APCI, the data unit identifier and every
+  information object;
   copy as hex, as a C array or as the decoded line; record to a file and
   open it again; export the shown telegrams as text or JSON.
 - **Points**: value, quality (IV NT SB BL OV), time tag, cause and update
@@ -97,9 +101,13 @@ attached to each
 Unpack and run; there is nothing to install.
 
 A recording (Telegrams → Save recording) holds one telegram per line: Unix
-time in milliseconds, `TX` or `RX`, the APDU in hex.
+time in milliseconds, `TX` or `RX`, the APDU in hex. A `# sizes` line gives
+the address sizes (common address, object address and cause octets) the
+telegrams after it were read with, so a recording decodes the same under
+other settings; one without it is read with the current settings.
 
 ```text
+# sizes 2 3 2
 1792569580988 TX 68 04 07 00 00 00
 1792569580989 RX 68 04 0B 00 00 00
 ```
