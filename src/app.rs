@@ -13,7 +13,7 @@ use crate::files::{Files, entry_time};
 use crate::points::Points;
 use crate::settings::Settings;
 use crate::simulator::{Kind, ServedFile, SimPoint, Simulator, value_text};
-use crate::telegram::{Category, Dir, Filter, Matcher, Telegram, cause_name, hex};
+use crate::telegram::{Category, Dir, Filter, MAX_TELEGRAMS, Matcher, Telegram, cause_name, hex};
 
 const SETTINGS_KEY: &str = "settings";
 
@@ -114,6 +114,17 @@ impl App {
     }
 
     fn push(&mut self, telegram: Telegram) {
+        let dropped = crate::telegram::make_room(&mut self.telegrams, MAX_TELEGRAMS);
+        if dropped > 0 {
+            self.selected = self.selected.and_then(|i| i.checked_sub(dropped));
+            self.open = self
+                .open
+                .iter()
+                .filter_map(|i| i.checked_sub(dropped))
+                .collect();
+            self.refilter();
+            self.status = format!("telegram list full: dropped the oldest {dropped}");
+        }
         if self.matcher.matches(&telegram) {
             self.shown.push(self.telegrams.len());
         }

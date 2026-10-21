@@ -8,6 +8,9 @@ follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The telegram list keeps at most 1 000 000 telegrams and drops the oldest
+  half when full; it grew without limit, about 2.6 GB a day at 100 frames a
+  second (#4).
 - Normalized set points, parameters and monitor values outside −1..1 (or
   not a number) are refused; they were clamped silently, so `5` went out as
   0.99997 and `nan` as 0 (#3).
