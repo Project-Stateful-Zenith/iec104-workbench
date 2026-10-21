@@ -20,6 +20,12 @@ pub enum NoticeKind {
     Event(Event),
     Window(u16),
     Error(String),
+    Log(String),
+    /// The simulator reported a point's new value after a command.
+    Echo {
+        ioa: u32,
+        value: iec104::asdu::Value,
+    },
 }
 
 pub struct Driver {
@@ -122,7 +128,7 @@ impl Driver {
 }
 
 impl Notice {
-    fn now(kind: NoticeKind) -> Self {
+    pub fn now(kind: NoticeKind) -> Self {
         Self {
             at: Local::now(),
             kind,

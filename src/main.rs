@@ -5,6 +5,7 @@ mod commands;
 mod driver;
 mod points;
 mod settings;
+mod simulator;
 mod telegram;
 
 fn main() -> eframe::Result {

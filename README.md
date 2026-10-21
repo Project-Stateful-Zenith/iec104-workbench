@@ -18,6 +18,7 @@ table of the values the station reports, and sends whatever you build.
 | Telegrams | every APDU sent and received, filtered, decoded layer by layer |
 | Points | the latest value, quality and time tag of every information object |
 | Send | process, system, parameter and monitor-direction messages, or raw ASDU octets |
+| Station | simulator mode: the workbench is the controlled station, with points you edit and report |
 
 > [!NOTE]
 > This repository is a clone of an internal production repository. It may
@@ -56,8 +57,14 @@ What it covers:
   synchronisation, test and reset process; parameters P_ME_NA/NB/NC and
   P_AC_NA; monitor-direction values with quality flags; any cause, P/N and
   test bit; raw ASDU octets in hex with a live decode.
-- **Profiles**: all settings saved and loaded as TOML; the last ones are
-  remembered.
+- **Simulator**: switch the mode to Simulator and the workbench listens as
+  a controlled station, over TCP or mutual TLS. It answers interrogation,
+  counter interrogation, read, clock synchronisation and test commands from
+  its points, sends a value you edit as a spontaneous event, takes commands
+  on the points you mark, and can echo a command's result as return
+  information. Every frame goes to the telegram list.
+- **Profiles**: all settings, simulator points included, saved and loaded
+  as TOML; the last ones are remembered.
 
 ## Screenshot
 
@@ -92,7 +99,7 @@ Rust 1.88 or newer. The tests include an end-to-end run against
 zenith-iec104's own server; no hardware is needed.
 
 Not yet in this version: file transfer workflows (the F_* types decode and
-can be sent as hex), scripting, redundancy groups and a station simulator.
+can be sent as hex), scripting and redundancy groups.
 
 ## Disclaimer
 

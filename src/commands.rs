@@ -188,7 +188,7 @@ const CAUSES: [(u8, &str); 9] = [
     (20, "20 inrogen"),
 ];
 
-fn choice<T: Copy + PartialEq>(ui: &mut Ui, id: &str, current: &mut T, options: &[(T, &str)]) {
+pub fn choice<T: Copy + PartialEq>(ui: &mut Ui, id: &str, current: &mut T, options: &[(T, &str)]) {
     let text = options
         .iter()
         .find(|(v, _)| v == current)

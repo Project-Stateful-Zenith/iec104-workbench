@@ -6,6 +6,8 @@ use iec104::params::LinkParams;
 use iec104_tls::{Identity, TlsConfig, certificates_from_pem_file};
 use serde::{Deserialize, Serialize};
 
+use crate::simulator::SimPoint;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -25,6 +27,9 @@ pub struct Settings {
     pub t3: u64,
     pub auto_start: bool,
     pub tls: Tls,
+    pub station: Vec<SimPoint>,
+    /// Simulator: report a commanded point's new value as return information.
+    pub echo: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -56,6 +61,8 @@ impl Default for Settings {
             t3: link.t3.as_secs(),
             auto_start: true,
             tls: Tls::default(),
+            station: (1..=3).map(SimPoint::new).collect(),
+            echo: true,
         }
     }
 }

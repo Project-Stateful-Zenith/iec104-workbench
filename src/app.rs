@@ -10,6 +10,7 @@ use crate::commands::{self, Forms};
 use crate::driver::{Driver, Notice, NoticeKind, state_name};
 use crate::points::Points;
 use crate::settings::Settings;
+use crate::simulator::{Kind, SimPoint, Simulator, value_text};
 use crate::telegram::{Category, Dir, Filter, Matcher, Telegram, cause_name, hex};
 
 const SETTINGS_KEY: &str = "settings";
@@ -18,11 +19,21 @@ const SETTINGS_KEY: &str = "settings";
 enum View {
     Telegrams,
     Points,
+    Station,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    Client,
+    Simulator,
 }
 
 pub struct App {
     settings: Settings,
+    mode: Mode,
     driver: Option<Driver>,
+    simulator: Option<Simulator>,
+    log: Vec<String>,
     notices: mpsc::Receiver<Notice>,
     sender: mpsc::Sender<Notice>,
     state: Option<State>,
@@ -51,7 +62,10 @@ impl App {
         let filter = Filter::default();
         Self {
             settings,
+            mode: Mode::Client,
             driver: None,
+            simulator: None,
+            log: Vec::new(),
             notices,
             sender,
             state: None,
@@ -124,6 +138,15 @@ impl App {
                 },
                 NoticeKind::Window(room) => self.window = Some(room),
                 NoticeKind::Error(e) => self.status = e,
+                NoticeKind::Log(line) => {
+                    self.log
+                        .push(format!("{} {line}", notice.at.format("%T%.3f")));
+                }
+                NoticeKind::Echo { ioa, value } => {
+                    if let Some(point) = self.settings.station.iter_mut().find(|p| p.ioa == ioa) {
+                        point.value = value_text(&value);
+                    }
+                }
             }
         }
     }
@@ -147,8 +170,57 @@ impl App {
         self.status = "disconnected".into();
     }
 
+    fn start_simulator(&mut self, ctx: &Context) {
+        let wake = ctx.clone();
+        match Simulator::start(
+            &self.settings,
+            self.settings.echo,
+            self.sender.clone(),
+            move || {
+                wake.request_repaint();
+            },
+        ) {
+            Ok(simulator) => {
+                self.simulator = Some(simulator);
+                self.status = format!("listening on {}", self.settings.address());
+            }
+            Err(e) => self.status = e,
+        }
+    }
+
+    fn stop_simulator(&mut self) {
+        if let Some(simulator) = self.simulator.take() {
+            simulator.shutdown();
+            self.status = "simulator stopped".into();
+        }
+    }
+
     fn connection_bar(&mut self, ui: &mut Ui, ctx: &Context) {
         ui.horizontal(|ui| {
+            let idle = self.driver.is_none() && self.simulator.is_none();
+            ui.add_enabled_ui(idle, |ui| {
+                let before = self.mode;
+                egui::ComboBox::from_id_salt("mode")
+                    .width(100.0)
+                    .selected_text(match self.mode {
+                        Mode::Client => "Client",
+                        Mode::Simulator => "Simulator",
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.mode, Mode::Client, "Client");
+                        ui.selectable_value(&mut self.mode, Mode::Simulator, "Simulator");
+                    });
+                if self.mode != before {
+                    self.view = match self.mode {
+                        Mode::Client => View::Telegrams,
+                        Mode::Simulator => View::Station,
+                    };
+                }
+            });
+            if self.mode == Mode::Simulator {
+                self.simulator_bar(ui, ctx);
+                return;
+            }
             let connected = self.driver.is_some();
             ui.add_enabled_ui(!connected, |ui| {
                 ui.label("Host");
@@ -183,6 +255,161 @@ impl App {
                 ui.label(format!("k room: {room}/{}", self.settings.k));
             }
         });
+    }
+
+    fn simulator_bar(&mut self, ui: &mut Ui, ctx: &Context) {
+        let running = self.simulator.is_some();
+        ui.add_enabled_ui(!running, |ui| {
+            ui.label("Listen");
+            ui.add(egui::TextEdit::singleline(&mut self.settings.host).desired_width(140.0));
+            ui.label("Port");
+            ui.add(egui::DragValue::new(&mut self.settings.port));
+            ui.label("CA");
+            ui.add(egui::DragValue::new(&mut self.settings.common_address));
+            ui.checkbox(&mut self.settings.echo, "Echo commands");
+        });
+        if running {
+            if ui.button("Stop").clicked() {
+                self.stop_simulator();
+            }
+        } else if ui.button("Start").clicked() {
+            self.start_simulator(ctx);
+        }
+        if ui.button("Settings…").clicked() {
+            self.show_settings = !self.show_settings;
+        }
+    }
+
+    /// Returns the rows whose Report and remove buttons were pressed.
+    fn station_table(&mut self, ui: &mut Ui) -> (Option<usize>, Option<usize>) {
+        let running = self.simulator.is_some();
+        let mut report = None;
+        let mut remove = None;
+        let error = ui.visuals().error_fg_color;
+        let height = ui.available_height() - 180.0;
+        TableBuilder::new(ui)
+            .striped(true)
+            .columns(Column::auto(), 7)
+            .column(Column::remainder())
+            .max_scroll_height(height)
+            .header(20.0, |mut header| {
+                for title in [
+                    "IOA", "Type", "Value", "IV", "Group", "Time tag", "Commands", "",
+                ] {
+                    header.col(|ui| {
+                        ui.strong(title);
+                    });
+                }
+            })
+            .body(|mut body| {
+                for (i, p) in self.settings.station.iter_mut().enumerate() {
+                    body.row(24.0, |mut row| {
+                        row.col(|ui| {
+                            ui.add_enabled(
+                                !running,
+                                egui::DragValue::new(&mut p.ioa).range(1..=16_777_215),
+                            );
+                        });
+                        row.col(|ui| {
+                            ui.add_enabled_ui(!running, |ui| {
+                                commands::choice(ui, &format!("kind{i}"), &mut p.kind, &Kind::ALL);
+                            });
+                        });
+                        row.col(|ui| {
+                            let invalid = p.parse().is_err();
+                            let mut edit =
+                                egui::TextEdit::singleline(&mut p.value).desired_width(110.0);
+                            if invalid {
+                                edit = edit.text_color(error);
+                            }
+                            let response = ui.add(edit);
+                            if running
+                                && response.lost_focus()
+                                && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                            {
+                                report = Some(i);
+                            }
+                        });
+                        row.col(|ui| {
+                            ui.checkbox(&mut p.invalid, "");
+                        });
+                        row.col(|ui| {
+                            ui.add_enabled(
+                                !running,
+                                egui::DragValue::new(&mut p.group).range(0..=16),
+                            );
+                        });
+                        row.col(|ui| {
+                            ui.add_enabled(!running, egui::Checkbox::without_text(&mut p.tagged));
+                        });
+                        row.col(|ui| {
+                            let possible = !running && p.kind.family().is_some();
+                            ui.add_enabled(possible, egui::Checkbox::without_text(&mut p.commands));
+                        });
+                        row.col(|ui| {
+                            ui.horizontal(|ui| {
+                                if ui
+                                    .add_enabled(running, egui::Button::new("Report"))
+                                    .clicked()
+                                {
+                                    report = Some(i);
+                                }
+                                if ui
+                                    .add_enabled(!running, egui::Button::new("Remove"))
+                                    .clicked()
+                                {
+                                    remove = Some(i);
+                                }
+                            });
+                        });
+                    });
+                }
+            });
+        (report, remove)
+    }
+
+    fn station_view(&mut self, ui: &mut Ui) {
+        let running = self.simulator.is_some();
+        ui.horizontal(|ui| {
+            if ui
+                .add_enabled(!running, egui::Button::new("Add point"))
+                .clicked()
+            {
+                let next = self
+                    .settings
+                    .station
+                    .iter()
+                    .map(|p| p.ioa)
+                    .max()
+                    .unwrap_or(0);
+                self.settings
+                    .station
+                    .push(SimPoint::new(next.saturating_add(1)));
+            }
+            ui.label(if running {
+                "Edit a value and press Report (or Enter) to send it as a spontaneous event."
+            } else {
+                "Points are fixed while the station runs."
+            });
+        });
+        let (report, remove) = self.station_table(ui);
+        if let (Some(i), Some(simulator)) = (report, &self.simulator)
+            && let Some(point) = self.settings.station.get(i)
+            && let Err(e) = simulator.report(point)
+        {
+            self.status = e;
+        }
+        if let Some(i) = remove {
+            self.settings.station.remove(i);
+        }
+        ui.separator();
+        egui::ScrollArea::vertical()
+            .stick_to_bottom(true)
+            .show(ui, |ui| {
+                for line in &self.log {
+                    ui.monospace(line);
+                }
+            });
     }
 
     fn menu(&mut self, ui: &mut Ui) {
@@ -561,6 +788,7 @@ impl eframe::App for App {
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.disconnect();
+        self.stop_simulator();
     }
 
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
@@ -580,7 +808,7 @@ impl eframe::App for App {
         egui::SidePanel::right("send")
             .resizable(true)
             .default_width(320.0)
-            .show(ctx, |ui| {
+            .show_animated(ctx, self.mode == Mode::Client, |ui| {
                 ui.heading("Send");
                 let send_ctx = commands::Context {
                     sizes: self.sizes(),
@@ -612,11 +840,18 @@ impl eframe::App for App {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut self.view, View::Telegrams, "Telegrams");
-                ui.selectable_value(
-                    &mut self.view,
-                    View::Points,
-                    format!("Points ({})", self.points.rows.len()),
-                );
+                match self.mode {
+                    Mode::Client => ui.selectable_value(
+                        &mut self.view,
+                        View::Points,
+                        format!("Points ({})", self.points.rows.len()),
+                    ),
+                    Mode::Simulator => ui.selectable_value(
+                        &mut self.view,
+                        View::Station,
+                        format!("Station ({})", self.settings.station.len()),
+                    ),
+                };
             });
             ui.separator();
             match self.view {
@@ -625,6 +860,7 @@ impl eframe::App for App {
                     self.telegram_table(ui);
                 }
                 View::Points => self.points_table(ui),
+                View::Station => self.station_view(ui),
             }
         });
         self.settings_window(ctx);
