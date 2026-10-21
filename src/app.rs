@@ -174,6 +174,13 @@ impl App {
                         self.state = None;
                         self.window = None;
                         self.status = format!("disconnected: {reason}");
+                        // The station does not resume a transfer or a select
+                        // on the next connection.
+                        self.pending = None;
+                        if self.files.busy() {
+                            self.files.cancel();
+                            self.files.status = format!("stopped, connection lost: {reason}");
+                        }
                     }
                     _ => {}
                 },
