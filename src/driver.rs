@@ -324,6 +324,57 @@ pub mod tests {
         assert!(!header.negative);
     }
 
+    #[test]
+    fn finds_the_station_address() {
+        let station = tokio::runtime::Runtime::new().unwrap();
+        let port = station.block_on(async {
+            let config =
+                ServerConfig::new(5).point(100, PointConfig::new(Value::Scaled(42)).untagged());
+            let server = Server::spawn(config, Accept).unwrap();
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let port = listener.local_addr().unwrap().port();
+            tokio::spawn(server.serve(listener));
+            port
+        });
+        let settings = Settings {
+            port,
+            ..Settings::default()
+        };
+        let sizes = settings.sizes().unwrap();
+        let (tx, rx) = mpsc::channel();
+        let driver = Driver::connect(&settings, tx, || {}).unwrap();
+        wait(&rx, |event| {
+            matches!(
+                event,
+                Event::State {
+                    state: State::Started,
+                    ..
+                }
+            )
+            .then_some(())
+        });
+        let find = crate::commands::find_station(&Context {
+            sizes,
+            common_address: settings.common_address,
+            originator: 0,
+        })
+        .unwrap();
+        driver.send(find);
+        let confirmation = wait(&rx, |event| match event {
+            Event::Asdu { asdu, .. } => iec104::asdu::Header::parse_with(&asdu, sizes)
+                .ok()
+                .filter(|h| h.type_id == iec104::asdu::TypeId::CIcNa1),
+            _ => None,
+        });
+        driver.shutdown();
+        assert_eq!(confirmation.cause, iec104::asdu::Cause::ActivationCon);
+        assert!(!confirmation.negative);
+        assert_eq!(
+            crate::commands::other_station(1, confirmation.common_address, sizes),
+            Some(5)
+        );
+    }
+
     /// Waits for the first event `found` returns `Some` for.
     fn wait<T>(rx: &mpsc::Receiver<Notice>, mut found: impl FnMut(Event) -> Option<T>) -> T {
         for _ in 0..100 {

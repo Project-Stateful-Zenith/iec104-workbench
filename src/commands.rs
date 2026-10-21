@@ -718,6 +718,33 @@ pub fn confirmation(asdu: &[u8], sizes: AddressSizes, type_id: u8, ioa: u32) -> 
     matches.then_some(header.cause == Cause::ActivationCon && !header.negative)
 }
 
+/// A station interrogation (QOI 20, cause act) to the broadcast common
+/// address, which 5-101 cl.7.2.4 allows for `C_IC_NA_1`: the station
+/// answers with its own common address.
+pub fn find_station(ctx: &Context) -> Result<Vec<u8>, String> {
+    let broadcast = Context {
+        common_address: ctx.sizes.broadcast_common_address(),
+        ..*ctx
+    };
+    Forms {
+        tab: Tab::System,
+        system: SystemKind::Interrogation,
+        qualifier: "20".into(),
+        ..Forms::default()
+    }
+    .build(&broadcast)
+}
+
+/// The common address of a received ASDU when it is not the configured one
+/// (nor the broadcast address).
+pub const fn other_station(configured: u16, received: u16, sizes: AddressSizes) -> Option<u16> {
+    if received == configured || received == sizes.broadcast_common_address() {
+        None
+    } else {
+        Some(received)
+    }
+}
+
 /// `Nva::from_scaled` clamps silently outside the `NVA` range (5-101
 /// cl.7.2.6.6), so a value it cannot carry is refused here instead.
 pub fn normalized(text: &str) -> Result<Nva, String> {
@@ -817,6 +844,33 @@ mod tests {
             forms.build(&ctx).unwrap(),
             [0x64, 0x01, 0x06, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x14]
         );
+    }
+
+    #[test]
+    fn finds_the_station_by_broadcast() {
+        assert_eq!(
+            find_station(&CTX).unwrap(),
+            [0x64, 0x01, 0x06, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x14]
+        );
+        let narrow = Context {
+            sizes: AddressSizes::new(1, 3, true).unwrap(),
+            ..CTX
+        };
+        assert_eq!(
+            find_station(&narrow).unwrap(),
+            [0x64, 0x01, 0x06, 0x00, 0xFF, 0x00, 0x00, 0x00, 0x14]
+        );
+    }
+
+    #[test]
+    fn hints_another_station() {
+        let wide = AddressSizes::CONVENTIONAL;
+        let narrow = AddressSizes::new(1, 3, true).unwrap();
+        assert_eq!(other_station(1, 5, wide), Some(5));
+        assert_eq!(other_station(5, 5, wide), None);
+        assert_eq!(other_station(1, 0xFFFF, wide), None);
+        assert_eq!(other_station(1, 0xFF, wide), Some(0xFF));
+        assert_eq!(other_station(1, 0xFF, narrow), None);
     }
 
     #[test]

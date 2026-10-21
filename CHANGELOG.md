@@ -32,6 +32,13 @@ follow [Semantic Versioning](https://semver.org/).
   `upload-<ioa>-<name>.bin` in the folder set in the Station view (the
   system temp folder by default) and logged. Both are kept in profiles
   (#38).
+- Common address and address sizes: the bar's field is labelled "ASDU
+  address (CA)" and the size fields explain themselves on hover; Settings
+  has an Address sizes preset (IEC 104 standard 2/2/3, CA 1 octet 2/1/3,
+  compact 1/1/2). Find interrogates the broadcast common address and shows
+  the CA the station answers with; the status bar hints once per CA when
+  received ASDUs carry another CA than the configured one, with a "use CA
+  n" button.
 
 ### Changed
 
