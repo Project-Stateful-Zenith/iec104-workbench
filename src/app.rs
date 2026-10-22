@@ -26,6 +26,7 @@ enum View {
     Points,
     Files,
     Station,
+    About,
 }
 
 /// A select sent by "Select + execute", waiting for its confirmation.
@@ -1418,6 +1419,7 @@ impl eframe::App for App {
                         format!("Station ({})", self.settings.station.len()),
                     ),
                 };
+                ui.selectable_value(&mut self.view, View::About, "About");
             });
             ui.separator();
             match self.view {
@@ -1428,6 +1430,10 @@ impl eframe::App for App {
                 View::Points => self.points_view(ui),
                 View::Files => self.files_view(ui),
                 View::Station => self.station_view(ui),
+                View::About => {
+                    ui.heading(concat!("IEC 104 Workbench ", env!("CARGO_PKG_VERSION")));
+                    ui.hyperlink(env!("CARGO_PKG_REPOSITORY"));
+                }
             }
         });
         self.settings_window(ctx);
