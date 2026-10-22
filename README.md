@@ -129,6 +129,24 @@ other settings; one without it is read with the current settings.
 1792569580989 RX 68 04 0B 00 00 00
 ```
 
+## Where files are stored
+
+The GUI remembers the last settings (simulator points included) and the
+window size and position in one file, `app.ron`, written on exit:
+
+| OS | Location |
+| --- | --- |
+| Linux | `$XDG_DATA_HOME/iec104-workbench/app.ron`, by default `~/.local/share/iec104-workbench/app.ron` |
+| macOS | `~/Library/Application Support/iec104-workbench/app.ron` |
+| Windows | `%APPDATA%\iec104-workbench\data\app.ron` |
+
+Delete it to start from the defaults. Nothing else is written unless you
+ask: profiles, recordings, exports and downloaded files go where you pick
+in the save dialog, and `run` writes only the `--log` and `--record` files
+you name. In simulator mode with Accept uploads on, files a client uploads
+are saved to the upload folder, by default the system temp directory
+(`/tmp` on Linux, `$TMPDIR` on macOS, `%TEMP%` on Windows).
+
 ## Scripted tests
 
 `iec104-workbench run` runs a [Rhai](https://rhai.rs) script without
@@ -152,7 +170,7 @@ use `--log` there.
 | `connect()` / `disconnect()` | open and close the profile's connection; `connect` returns once data transfer is on (or the socket is up without STARTDT on connect) |
 | `start_dt()` / `stop_dt()` | STARTDT or STOPDT, waiting up to t1 for the confirmation |
 | `send_hex("64 01 06 00 01 00 00 00 00 14")` | any ASDU, in hex |
-| `interrogation(qoi)`, `counter_interrogation(rqt)`, `read(ioa)`, `clock_sync()` | system commands, cause act, to the profile's CA |
+| `interrogation(qoi)`, `counter_interrogation(rqt)`, `read(ioa)`, `clock_sync()` | system commands to the profile's CA, cause act (`read` cause req) |
 | `single_command(ioa, on, select)`, `double_command(ioa, on, select)` | process commands |
 | `setpoint_scaled(ioa, value)`, `setpoint_float(ioa, value)` | set points |
 | `wait_for(type, cause, timeout_ms)` | the next received ASDU of that type and cause, as a map: `type`, `type_name`, `cause`, `negative`, `test`, `ca`, `objects` (each with `ioa`, `value`, `quality`); fails after the timeout |
@@ -166,6 +184,11 @@ expect(!wait_for(100, 7, 5000).negative, "interrogation refused");
 wait_for(100, 10, 5000);
 expect(point(1, 101) == "2000", "IOA 101 should read 2000");
 ```
+
+[examples/walkthrough.rhai](examples/walkthrough.rhai) goes further against
+zenith-iec104's example server: it loops over the objects a group
+interrogation returns, sends a read as raw hex, checks a command's return
+information and waits for a spontaneous event.
 
 ## Build
 

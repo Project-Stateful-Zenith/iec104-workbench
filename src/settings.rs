@@ -6,9 +6,10 @@ use iec104::params::LinkParams;
 use iec104_tls::{Identity, TlsConfig, Version, certificates_from_pem_file, crls_from_pem_file};
 use serde::{Deserialize, Serialize};
 
+use crate::points::Scale;
 use crate::simulator::{ServedFile, SimPoint};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 #[expect(clippy::struct_excessive_bools, reason = "one field per checkbox")]
 pub struct Settings {
@@ -41,6 +42,8 @@ pub struct Settings {
     pub accept_uploads: bool,
     /// Simulator: where received files are saved.
     pub upload_folder: String,
+    /// Points view: per point display scaling.
+    pub scales: Vec<Scale>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -125,6 +128,7 @@ impl Default for Settings {
             select_before_execute: false,
             accept_uploads: false,
             upload_folder: std::env::temp_dir().display().to_string(),
+            scales: Vec::new(),
         }
     }
 }

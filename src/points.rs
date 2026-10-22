@@ -4,12 +4,15 @@ use std::path::Path;
 
 use chrono::{DateTime, Datelike, Local, Timelike};
 use iec104::asdu::{self, AddressSizes, Quality, TimeTag, Value};
+use serde::{Deserialize, Serialize};
 
 use crate::telegram::cause_name;
 
 pub struct Row {
     pub type_name: &'static str,
     pub value: String,
+    /// The latest value as a number, before any scale.
+    pub number: Option<f64>,
     pub quality: String,
     pub time: String,
     pub cause: String,
@@ -41,6 +44,7 @@ impl Points {
                 .or_insert_with(|| Row {
                     type_name: "",
                     value: String::new(),
+                    number: None,
                     quality: String::new(),
                     time: String::new(),
                     cause: String::new(),
@@ -50,12 +54,13 @@ impl Points {
                 });
             row.type_name = header.type_id.name();
             row.value = value_text(&point.value);
+            row.number = numeric(&point.value);
             row.quality = point.quality.map(quality_text).unwrap_or_default();
             row.time = point.time.map(time_text).unwrap_or_default();
             row.cause = cause_name(header.cause);
             row.updates = row.updates.saturating_add(1);
             row.received = at;
-            if let (Some(history), Some(value)) = (&mut row.history, numeric(&point.value)) {
+            if let (Some(history), Some(value)) = (&mut row.history, row.number) {
                 if history.len() >= MAX_SAMPLES {
                     history.pop_front();
                 }
@@ -64,14 +69,16 @@ impl Points {
         }
     }
 
-    pub fn save_csv(&self, path: &Path) -> Result<(), String> {
-        let mut text = String::from("ca,ioa,type,value,quality,time,cause,updates,received\n");
+    pub fn save_csv(&self, path: &Path, scales: &[Scale]) -> Result<(), String> {
+        let mut text =
+            String::from("ca,ioa,type,value,scaled,quality,time,cause,updates,received\n");
         for ((ca, ioa), r) in &self.rows {
             let _ = writeln!(
                 text,
-                "{ca},{ioa},{},\"{}\",{},{},{},{},{}",
+                "{ca},{ioa},{},\"{}\",{},{},{},{},{},{}",
                 r.type_name,
                 r.value.replace('"', "\"\""),
+                scaled_text(scales, *ca, *ioa, r.number),
                 r.quality,
                 r.time,
                 r.cause,
@@ -81,6 +88,68 @@ impl Points {
         }
         std::fs::write(path, text).map_err(|e| e.to_string())
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Op {
+    Multiply,
+    Divide,
+    Add,
+    Subtract,
+}
+
+impl Op {
+    pub const ALL: [Self; 4] = [Self::Multiply, Self::Divide, Self::Add, Self::Subtract];
+
+    pub const fn symbol(self) -> &'static str {
+        match self {
+            Self::Multiply => "×",
+            Self::Divide => "÷",
+            Self::Add => "+",
+            Self::Subtract => "−",
+        }
+    }
+}
+
+/// How one point's value is shown: `raw op factor`, rounded to `decimals`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Scale {
+    pub ca: u16,
+    pub ioa: u32,
+    pub op: Op,
+    pub factor: f64,
+    pub decimals: u8,
+}
+
+impl Scale {
+    /// `None` when dividing by zero.
+    pub fn apply(&self, raw: f64) -> Option<f64> {
+        match self.op {
+            Op::Multiply => Some(raw * self.factor),
+            Op::Divide => (self.factor != 0.0).then(|| raw / self.factor),
+            Op::Add => Some(raw + self.factor),
+            Op::Subtract => Some(raw - self.factor),
+        }
+    }
+
+    pub fn label(&self) -> String {
+        format!("{} {}", self.op.symbol(), self.factor)
+    }
+}
+
+pub fn find(scales: &[Scale], ca: u16, ioa: u32) -> Option<&Scale> {
+    scales.iter().find(|s| s.ca == ca && s.ioa == ioa)
+}
+
+/// The scaled value, empty for unscaled or non-numeric points.
+pub fn scaled_text(scales: &[Scale], ca: u16, ioa: u32, raw: Option<f64>) -> String {
+    find(scales, ca, ioa)
+        .zip(raw)
+        .and_then(|(s, raw)| {
+            s.apply(raw)
+                .map(|v| format!("{v:.*}", usize::from(s.decimals)))
+        })
+        .unwrap_or_default()
 }
 
 /// The chart's x: seconds since 0001-01-01 local time, kept continuous over
@@ -226,6 +295,28 @@ mod tests {
         assert_eq!(numeric(&Value::Scaled(-300)), Some(-300.0));
         assert_eq!(numeric(&Value::Float(1.5)), Some(1.5));
         assert_eq!(numeric(&Value::Bitstring(1)), None);
+    }
+
+    #[test]
+    fn scales_and_rounds() {
+        let mut scale = Scale {
+            ca: 1,
+            ioa: 100,
+            op: Op::Divide,
+            factor: 1000.0,
+            decimals: 2,
+        };
+        let scales = [scale.clone()];
+        assert_eq!(scaled_text(&scales, 1, 100, Some(1234.0)), "1.23");
+        assert_eq!(scaled_text(&scales, 1, 101, Some(1234.0)), "");
+        assert_eq!(scaled_text(&scales, 1, 100, None), "");
+        scale.factor = 0.0;
+        assert_eq!(scale.apply(1.0), None);
+        scale.factor = 2.0;
+        for (op, expected) in [(Op::Multiply, 20.0), (Op::Add, 12.0), (Op::Subtract, 8.0)] {
+            scale.op = op;
+            assert_eq!(scale.apply(10.0), Some(expected));
+        }
     }
 
     #[test]

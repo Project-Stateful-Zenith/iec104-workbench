@@ -210,6 +210,7 @@ fn engine(session: &Rc<RefCell<Session>>) -> Engine {
         s.borrow_mut().send_form(|f| {
             f.tab = Tab::System;
             f.system = SystemKind::Read;
+            f.cause = f.default_cause();
             f.ioa = ioa.to_string();
         })
     });

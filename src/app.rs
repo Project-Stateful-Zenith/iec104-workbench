@@ -13,7 +13,7 @@ use crate::commands::{self, Action, Forms};
 use crate::driver::{Driver, Notice, NoticeKind, state_name};
 use crate::files::{Files, entry_time};
 use crate::link::Sequence;
-use crate::points::Points;
+use crate::points::{self, Op, Points, Scale};
 use crate::settings::{PRESETS, Settings, TlsVersion};
 use crate::simulator::{Kind, ServedFile, SimPoint, Simulator, value_text};
 use crate::telegram::{Category, Dir, Filter, MAX_TELEGRAMS, Matcher, Telegram, cause_name, hex};
@@ -981,7 +981,7 @@ impl App {
                     {
                         self.status = self
                             .points
-                            .save_csv(&path)
+                            .save_csv(&path, &self.settings.scales)
                             .err()
                             .unwrap_or_else(|| "points exported".into());
                     }
@@ -1254,13 +1254,14 @@ impl App {
         self.points_table(ui, height);
         if charted {
             ui.separator();
-            trend_chart(ui, &self.points);
+            trend_chart(ui, &self.points, &self.settings.scales);
         }
     }
 
     fn points_table(&mut self, ui: &mut Ui, height: f32) {
         let row_height = ui.text_style_height(&egui::TextStyle::Monospace) + 4.0;
         let mut rows: Vec<_> = self.points.rows.iter_mut().collect();
+        let scales = &mut self.settings.scales;
         TableBuilder::new(ui)
             .striped(true)
             .max_scroll_height(height)
@@ -1270,14 +1271,16 @@ impl App {
             .column(Column::auto().at_least(90.0))
             .column(Column::auto().at_least(120.0))
             .column(Column::auto().at_least(60.0))
+            .column(Column::auto().at_least(90.0))
+            .column(Column::auto().at_least(60.0))
             .column(Column::auto().at_least(180.0))
             .column(Column::auto().at_least(60.0))
             .column(Column::auto().at_least(50.0))
             .column(Column::remainder())
             .header(20.0, |mut header| {
                 for title in [
-                    "Chart", "CA", "IOA", "Type", "Value", "Quality", "Time tag", "Cause", "Count",
-                    "Received",
+                    "Chart", "CA", "IOA", "Type", "Value", "Scale", "Scaled", "Quality",
+                    "Time tag", "Cause", "Count", "Received",
                 ] {
                     header.col(|ui| {
                         ui.strong(title);
@@ -1300,6 +1303,18 @@ impl App {
                         ioa.to_string(),
                         r.type_name.to_string(),
                         r.value.clone(),
+                    ] {
+                        row.col(|ui| {
+                            ui.monospace(text);
+                        });
+                    }
+                    row.col(|ui| {
+                        if r.number.is_some() {
+                            scale_menu(ui, scales, *ca, *ioa);
+                        }
+                    });
+                    for text in [
+                        points::scaled_text(scales, *ca, *ioa, r.number),
                         r.quality.clone(),
                         r.time.clone(),
                         r.cause.clone(),
@@ -1441,7 +1456,7 @@ impl eframe::App for App {
     }
 }
 
-fn trend_chart(ui: &mut Ui, points: &Points) {
+fn trend_chart(ui: &mut Ui, points: &Points, scales: &[Scale]) {
     egui_plot::Plot::new("trend")
         .legend(egui_plot::Legend::default())
         .x_axis_formatter(|mark, _| {
@@ -1457,9 +1472,60 @@ fn trend_chart(ui: &mut Ui, points: &Points) {
         .show(ui, |plot| {
             for ((ca, ioa), row) in &points.rows {
                 if let Some(history) = &row.history {
-                    let samples: egui_plot::PlotPoints = history.iter().copied().collect();
+                    let scale = points::find(scales, *ca, *ioa);
+                    let samples: egui_plot::PlotPoints = history
+                        .iter()
+                        .filter_map(|&[x, y]| Some([x, scale.map_or(Some(y), |s| s.apply(y))?]))
+                        .collect();
                     plot.line(egui_plot::Line::new(format!("{ca}/{ioa}"), samples));
                 }
+            }
+        });
+}
+
+/// The Scale cell: a button showing the point's scale that opens its editor.
+fn scale_menu(ui: &mut Ui, scales: &mut Vec<Scale>, ca: u16, ioa: u32) {
+    let index = scales.iter().position(|s| s.ca == ca && s.ioa == ioa);
+    let label = index
+        .and_then(|i| scales.get(i))
+        .map_or_else(|| "…".into(), Scale::label);
+    egui::containers::menu::MenuButton::new(label)
+        .config(
+            egui::containers::menu::MenuConfig::new()
+                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside),
+        )
+        .ui(ui, |ui| {
+            let Some(scale) = index.and_then(|i| scales.get_mut(i)) else {
+                if ui.button("Add scale").clicked() {
+                    scales.push(Scale {
+                        ca,
+                        ioa,
+                        op: Op::Divide,
+                        factor: 1.0,
+                        decimals: 2,
+                    });
+                }
+                return;
+            };
+            ui.horizontal(|ui| {
+                for op in Op::ALL {
+                    ui.selectable_value(&mut scale.op, op, op.symbol());
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Factor");
+                ui.add(egui::DragValue::new(&mut scale.factor).speed(1.0));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Decimals");
+                ui.add(egui::DragValue::new(&mut scale.decimals).range(0..=10));
+            });
+            if scale.op == Op::Divide && scale.factor == 0.0 {
+                ui.colored_label(ui.visuals().warn_fg_color, "Cannot divide by 0");
+            }
+            if ui.button("Remove scale").clicked() {
+                scales.retain(|s| s.ca != ca || s.ioa != ioa);
+                ui.close();
             }
         });
 }
