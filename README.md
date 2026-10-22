@@ -89,6 +89,21 @@ What it covers:
 - **Profiles**: all settings, simulator points included, saved and loaded
   as TOML; the last ones are remembered.
 
+## Which Send tab to use
+
+| Tab | Use | Examples |
+| --- | --- | --- |
+| Process | make the station act or take a value | switch a breaker, step a tap changer, send a set point |
+| System | manage the station, not one point's value | interrogation, read one object, clock sync, test, reset process |
+| Parameter | change how a measured value is reported, not the value | threshold (deadband), smoothing factor, limits; activation switches loaded parameters, or the cyclic transmission of an object, on or off |
+| Monitor | send a value as the station would report it (cause 3, spontaneous) | testing a controlling station or a peer that takes monitor-direction data |
+| Hex | type the ASDU octets yourself | anything the other tabs do not build, or replaying a frame from a log |
+
+A set point and a parameter can both be a float, so the two are easy to mix
+up: a new value for an object goes in Process, a new threshold for it in
+Parameter. A station refuses a parameter its object does not take with a
+negative confirmation (COT 7 with the P/N bit set).
+
 ## Screenshot
 
 <p align="center">
