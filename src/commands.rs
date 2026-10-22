@@ -293,10 +293,7 @@ impl Forms {
                 (Tab::Manual, "Hex"),
             ] {
                 if ui.selectable_value(&mut self.tab, tab, label).clicked() {
-                    self.cause = match tab {
-                        Tab::Monitor => 3,
-                        _ => 6,
-                    };
+                    self.cause = self.default_cause();
                     self.qualifier = self.default_qualifier().into();
                 }
             }
@@ -346,6 +343,15 @@ impl Forms {
         })
     }
 
+    /// Read uses cause 5 (request), monitor direction 3, the rest act.
+    pub const fn default_cause(&self) -> u8 {
+        match (self.tab, self.system) {
+            (Tab::Monitor, _) => 3,
+            (Tab::System, SystemKind::Read) => 5,
+            _ => 6,
+        }
+    }
+
     const fn default_qualifier(&self) -> &'static str {
         match (self.tab, self.system) {
             (Tab::System, SystemKind::Interrogation) => "20",
@@ -391,6 +397,7 @@ impl Forms {
                 let before = self.system;
                 choice(ui, "system", &mut self.system, &SYSTEM);
                 if self.system != before {
+                    self.cause = self.default_cause();
                     self.qualifier = self.default_qualifier().into();
                 }
                 match self.system {
@@ -794,6 +801,20 @@ mod tests {
         };
         assert_eq!(objects[0].ioa, 4001);
         assert!(objects[0].value.sco.scs && objects[0].value.sco.qoc.select);
+    }
+
+    #[test]
+    fn read_is_a_request() {
+        let mut forms = Forms {
+            tab: Tab::System,
+            system: SystemKind::Read,
+            ioa: "101".into(),
+            ..Forms::default()
+        };
+        forms.cause = forms.default_cause();
+        let asdu = built(&mut forms);
+        assert_eq!(asdu.header.type_id, TypeId::CRdNa1);
+        assert_eq!(asdu.header.cause, Cause::Request);
     }
 
     #[test]
