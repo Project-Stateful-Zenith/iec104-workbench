@@ -8,7 +8,17 @@ follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `examples/walkthrough.rhai`, a scripted test that goes beyond the smoke
+  test, and a README section on where the workbench stores files.
 - An About tab with the version and a link to the repository.
+- Point scaling: a point can be multiplied, divided, offset and rounded for
+  display, in a Scaled column next to the raw value, in the chart and in the
+  CSV export; scales are kept in the settings.
+
+### Fixed
+
+- Read (C_RD_NA_1) is sent with cause 5 (request) instead of 6, from the
+  Send view and from the script `read()`; stations ignored it before.
 
 ## [0.6.0] - 2026-10-21
 
