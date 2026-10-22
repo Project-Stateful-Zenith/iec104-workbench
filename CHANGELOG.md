@@ -10,7 +10,8 @@ follow [Semantic Versioning](https://semver.org/).
 
 - `examples/walkthrough.rhai`, a scripted test that goes beyond the smoke
   test, and a README section on where the workbench stores files.
-- An About tab with the version and a link to the repository.
+- An About window, opened from the menu bar, with the version, the license,
+  a link to the repository and which Send tab to use.
 - Point scaling: a point can be multiplied, divided, offset and rounded for
   display, in a Scaled column next to the raw value, in the chart and in the
   CSV export; scales are kept in the settings.

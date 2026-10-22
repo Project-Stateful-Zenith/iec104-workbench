@@ -26,7 +26,6 @@ enum View {
     Points,
     Files,
     Station,
-    About,
 }
 
 /// A select sent by "Select + execute", waiting for its confirmation.
@@ -44,6 +43,7 @@ enum Mode {
     Simulator,
 }
 
+#[expect(clippy::struct_excessive_bools, reason = "independent UI switches")]
 pub struct App {
     settings: Settings,
     mode: Mode,
@@ -72,6 +72,7 @@ pub struct App {
     view: View,
     forms: Forms,
     show_settings: bool,
+    show_about: bool,
     status: String,
     /// A common address the station answered with, offered as "use CA n".
     suggestion: Option<u16>,
@@ -114,6 +115,7 @@ impl App {
             view: View::Telegrams,
             forms: Forms::default(),
             show_settings: false,
+            show_about: false,
             status: String::new(),
             suggestion: None,
             hinted: Vec::new(),
@@ -992,6 +994,9 @@ impl App {
                     ui.close();
                 }
             });
+            if ui.button("About").clicked() {
+                self.show_about = !self.show_about;
+            }
         });
     }
 
@@ -1434,7 +1439,6 @@ impl eframe::App for App {
                         format!("Station ({})", self.settings.station.len()),
                     ),
                 };
-                ui.selectable_value(&mut self.view, View::About, "About");
             });
             ui.separator();
             match self.view {
@@ -1445,15 +1449,58 @@ impl eframe::App for App {
                 View::Points => self.points_view(ui),
                 View::Files => self.files_view(ui),
                 View::Station => self.station_view(ui),
-                View::About => {
-                    ui.heading(concat!("IEC 104 Workbench ", env!("CARGO_PKG_VERSION")));
-                    ui.hyperlink(env!("CARGO_PKG_REPOSITORY"));
-                }
             }
         });
         self.settings_window(ctx);
+        egui::Window::new("About")
+            .open(&mut self.show_about)
+            .resizable(false)
+            .max_width(560.0)
+            .show(ctx, about);
         self.detail_windows(ctx);
     }
+}
+
+fn about(ui: &mut Ui) {
+    ui.heading(concat!("IEC 104 Workbench ", env!("CARGO_PKG_VERSION")));
+    ui.label(concat!("License: ", env!("CARGO_PKG_LICENSE")));
+    ui.hyperlink(env!("CARGO_PKG_REPOSITORY"));
+    ui.separator();
+    ui.strong("Which Send tab to use");
+    egui::Grid::new("send tabs")
+        .num_columns(2)
+        .striped(true)
+        .show(ui, |ui| {
+            for (tab, used) in [
+                (
+                    "Process",
+                    "make the station act or take a value: switch a breaker, step a tap changer, send a set point",
+                ),
+                (
+                    "System",
+                    "manage the station, not one point's value: interrogation, read one object, clock sync, test, reset process",
+                ),
+                (
+                    "Parameter",
+                    "change how a measured value is reported, not the value: threshold (deadband), smoothing factor, limits; activation switches them on or off",
+                ),
+                (
+                    "Monitor",
+                    "send a value as the station would report it (cause 3, spontaneous), to test a controlling station",
+                ),
+                (
+                    "Hex",
+                    "type the ASDU octets yourself: anything the other tabs do not build, or a frame replayed from a log",
+                ),
+            ] {
+                ui.strong(tab);
+                ui.add(egui::Label::new(used).wrap());
+                ui.end_row();
+            }
+        });
+    ui.label(
+        "A set point and a parameter can both be a float: a new value for an object goes in Process, a new threshold for it in Parameter.",
+    );
 }
 
 fn trend_chart(ui: &mut Ui, points: &Points, scales: &[Scale]) {
