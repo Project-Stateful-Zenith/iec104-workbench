@@ -6,6 +6,10 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- An About tab with the version and a link to the repository.
+
 ## [0.6.0] - 2026-10-21
 
 ### Added
