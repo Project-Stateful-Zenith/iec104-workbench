@@ -75,6 +75,7 @@ pub struct App {
     forms: Forms,
     show_settings: bool,
     show_about: bool,
+    update: crate::update::Check,
     status: String,
     /// A common address the station answered with, offered as "use CA n".
     suggestion: Option<u16>,
@@ -118,6 +119,7 @@ impl App {
             forms: Forms::default(),
             show_settings: false,
             show_about: false,
+            update: crate::update::Check::default(),
             status: String::new(),
             suggestion: None,
             hinted: Vec::new(),
@@ -1466,15 +1468,16 @@ impl eframe::App for App {
             .open(&mut self.show_about)
             .resizable(false)
             .max_width(560.0)
-            .show(ctx, about);
+            .show(ctx, |ui| about(ui, &mut self.update));
         self.detail_windows(ctx);
     }
 }
 
-fn about(ui: &mut Ui) {
+fn about(ui: &mut Ui, update: &mut crate::update::Check) {
     ui.heading(concat!("IEC 104 Workbench ", env!("CARGO_PKG_VERSION")));
     ui.label(concat!("License: ", env!("CARGO_PKG_LICENSE")));
     ui.hyperlink(env!("CARGO_PKG_REPOSITORY"));
+    update.ui(ui);
     ui.separator();
     ui.strong("Which Send tab to use");
     egui::Grid::new("send tabs")

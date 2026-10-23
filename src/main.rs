@@ -10,6 +10,7 @@ mod script;
 mod settings;
 mod simulator;
 mod telegram;
+mod update;
 
 use std::process::ExitCode;
 
