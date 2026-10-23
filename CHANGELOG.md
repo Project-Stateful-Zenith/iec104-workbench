@@ -6,6 +6,8 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-23
+
 ### Added
 
 - `examples/walkthrough.rhai`, a scripted test that goes beyond the smoke
@@ -15,6 +17,8 @@ follow [Semantic Versioning](https://semver.org/).
 - Point scaling: a point can be multiplied, divided, offset and rounded for
   display, in a Scaled column next to the raw value, in the chart and in the
   CSV export; scales are kept in the settings.
+- The Send forms warn when a float value is not finite: `inf`, `NaN`, or a
+  number beyond ±3.4028235e38, which went out as infinity without a word.
 
 ### Changed
 
@@ -35,8 +39,6 @@ follow [Semantic Versioning](https://semver.org/).
 - The simulator log keeps at most 10 000 lines, dropping the older half when
   full, and draws only the lines in view; it grew without limit and slowed
   the window on long runs.
-- The Send forms warn when a float value is not finite: `inf`, `NaN`, or a
-  number beyond ±3.4028235e38, which went out as infinity without a word.
 - Disconnect drops a select waiting for its confirmation and a running file
   transfer; before, the status line later said the select timed out.
 
@@ -195,7 +197,8 @@ The first release.
 - TOML profiles; the last settings are remembered.
 - Prebuilt binaries for Windows, macOS and Linux.
 
-[Unreleased]: https://github.com/Project-Stateful-Zenith/iec104-workbench/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/Project-Stateful-Zenith/iec104-workbench/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/Project-Stateful-Zenith/iec104-workbench/compare/v0.6.0...v1.0.0
 [0.6.0]: https://github.com/Project-Stateful-Zenith/iec104-workbench/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/Project-Stateful-Zenith/iec104-workbench/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/Project-Stateful-Zenith/iec104-workbench/compare/v0.3.0...v0.4.0
