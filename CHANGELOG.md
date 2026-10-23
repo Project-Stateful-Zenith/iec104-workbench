@@ -6,6 +6,11 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- About → Check for updates: asks GitHub for the latest release, only when
+  pressed, and links to its page when it is newer than the running version.
+
 ## [1.0.0] - 2026-10-23
 
 ### Added
