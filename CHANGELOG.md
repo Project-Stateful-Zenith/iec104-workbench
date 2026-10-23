@@ -6,11 +6,6 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Added
-
-- About → Check for updates: asks GitHub for the latest release, only when
-  pressed, and links to its page when it is newer than the running version.
-
 ## [1.0.0] - 2026-10-23
 
 ### Added
@@ -24,6 +19,8 @@ follow [Semantic Versioning](https://semver.org/).
   CSV export; scales are kept in the settings.
 - The Send forms warn when a float value is not finite: `inf`, `NaN`, or a
   number beyond ±3.4028235e38, which went out as infinity without a word.
+- About → Check for updates: asks GitHub for the latest release, only when
+  pressed, and links to its page when it is newer than the running version.
 
 ### Changed
 
