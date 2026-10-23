@@ -336,12 +336,17 @@ impl App {
             return;
         };
         let ioa = pending.ioa;
-        if let Some(pending) = self.pending.take()
+        if let Some(mut pending) = self.pending.take()
             && positive
             && let Some(driver) = &self.driver
         {
-            driver.send(pending.execute);
-            self.status = format!("IOA {ioa} selected, execute sent");
+            self.status = match commands::retime(&mut pending.execute) {
+                Ok(()) => {
+                    driver.send(pending.execute);
+                    format!("IOA {ioa} selected, execute sent")
+                }
+                Err(e) => format!("IOA {ioa} selected, execute not sent: {e}"),
+            };
         } else {
             self.status = format!("IOA {ioa}: select refused by the station, not executed");
         }

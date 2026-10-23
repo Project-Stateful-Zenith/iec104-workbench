@@ -26,6 +26,9 @@ follow [Semantic Versioning](https://semver.org/).
 
 - Read (C_RD_NA_1) is sent with cause 5 (request) instead of 6, from the
   Send view and from the script `read()`; stations ignored it before.
+- Select + execute with a CP56 time tag sends the execute with the time it
+  goes out, not the time of the select; a station that refuses old commands
+  could refuse it.
 
 ## [0.6.0] - 2026-10-21
 
