@@ -22,6 +22,9 @@ follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Releases attach the bare executable for each platform instead of a `.zip`
+  or `.tar.gz` holding it with the README and license, plus a `SHA256SUMS`
+  file with every binary's SHA-256.
 - New simulator points take commands: the Commands column starts ticked.
   Unticked, the station refuses a command to the point as unknown IOA
   (cause 47), which looked like a fault.

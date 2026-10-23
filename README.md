@@ -115,8 +115,11 @@ negative confirmation (COT 7 with the P/N bit set).
 
 Prebuilt binaries for Windows, macOS (Apple silicon and Intel) and Linux are
 attached to each
-[release](https://github.com/Project-Stateful-Zenith/iec104-workbench/releases).
-Unpack and run; there is nothing to install.
+[release](https://github.com/Project-Stateful-Zenith/iec104-workbench/releases),
+as the bare executable, with their SHA-256 sums in `SHA256SUMS`. Download and
+run; there is nothing to install. On Linux and macOS, make it executable
+first (`chmod +x iec104-workbench-*`); macOS may also ask you to allow it in
+System Settings → Privacy & Security, as the binary is not signed.
 
 A recording (Telegrams → Save recording) holds one telegram per line: Unix
 time in milliseconds, `TX` or `RX`, the APDU in hex. A `# sizes` line gives
