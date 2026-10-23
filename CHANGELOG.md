@@ -37,6 +37,8 @@ follow [Semantic Versioning](https://semver.org/).
   the window on long runs.
 - The Send forms warn when a float value is not finite: `inf`, `NaN`, or a
   number beyond ±3.4028235e38, which went out as infinity without a word.
+- Disconnect drops a select waiting for its confirmation and a running file
+  transfer; before, the status line later said the select timed out.
 
 ## [0.6.0] - 2026-10-21
 

@@ -414,6 +414,8 @@ impl App {
         self.states.clear();
         self.sequences.clear();
         self.window = None;
+        self.pending = None;
+        self.files.cancel();
         self.status = "disconnected".into();
     }
 
