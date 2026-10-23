@@ -8,6 +8,10 @@
 
 # iec104-workbench
 
+**IEC 104 test tool: client (master) and outstation simulator for
+IEC 60870-5-104. Free and open source, one binary for Windows, Linux and
+macOS.**
+
 A desktop test client for IEC 60870-5-104, the protocol SCADA control centres
 use to talk to substations and other remote stations over TCP. It connects to
 a controlled station (outstation), shows every frame on the wire, keeps a live
