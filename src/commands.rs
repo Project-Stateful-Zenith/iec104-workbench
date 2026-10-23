@@ -303,6 +303,18 @@ impl Forms {
             return self.manual_ui(ui, ctx).map(|r| r.map(Action::Send));
         }
         self.fields_ui(ui);
+        let float = matches!(
+            (self.tab, self.process, self.parameter, self.monitor),
+            (Tab::Process, ProcessKind::Float, _, _)
+                | (Tab::Parameter, _, ParameterKind::Float, _)
+                | (Tab::Monitor, _, _, MonitorKind::Float)
+        );
+        if float && not_finite(&self.value) {
+            ui.colored_label(
+                ui.visuals().warn_fg_color,
+                "Not a finite float: goes out as inf or NaN",
+            );
+        }
         ui.horizontal(|ui| {
             ui.label("Cause");
             choice(ui, "cause", &mut self.cause, &CAUSES);
@@ -777,6 +789,12 @@ pub fn normalized(text: &str) -> Result<Nva, String> {
     Ok(Nva::from_scaled(value))
 }
 
+/// Text that parses to an infinite or NaN float: `inf`, `NaN`, or a number
+/// beyond ±3.4028235e38, which parsing turns into infinity without an error.
+fn not_finite(text: &str) -> bool {
+    text.trim().parse::<f32>().is_ok_and(|v| !v.is_finite())
+}
+
 pub fn hex_u32(text: &str) -> Result<u32, String> {
     let digits = text
         .trim()
@@ -985,6 +1003,16 @@ mod tests {
         assert_eq!(built(&mut forms).header.type_id, TypeId::CIcNa1);
         forms.system = SystemKind::Read;
         assert!(forms.build(&CTX).is_err(), "Read shows and needs the IOA");
+    }
+
+    #[test]
+    fn spots_floats_that_are_not_finite() {
+        for text in ["inf", "-inf", "NaN", "1e39", " -4e38 "] {
+            assert!(not_finite(text), "{text}");
+        }
+        for text in ["3.4028235e38", "-1.5", "0", "", "abc"] {
+            assert!(!not_finite(text), "{text}");
+        }
     }
 
     #[test]
