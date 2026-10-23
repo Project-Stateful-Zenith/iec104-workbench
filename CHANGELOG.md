@@ -35,6 +35,8 @@ follow [Semantic Versioning](https://semver.org/).
 - The simulator log keeps at most 10 000 lines, dropping the older half when
   full, and draws only the lines in view; it grew without limit and slowed
   the window on long runs.
+- The Send forms warn when a float value is not finite: `inf`, `NaN`, or a
+  number beyond ±3.4028235e38, which went out as infinity without a word.
 
 ## [0.6.0] - 2026-10-21
 
