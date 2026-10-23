@@ -29,6 +29,9 @@ follow [Semantic Versioning](https://semver.org/).
 - Select + execute with a CP56 time tag sends the execute with the time it
   goes out, not the time of the select; a station that refuses old commands
   could refuse it.
+- Interrogation, counter interrogation, clock synchronisation, test and
+  reset process are sent even when the IOA field, which their form does not
+  show, holds no valid number.
 
 ## [0.6.0] - 2026-10-21
 
