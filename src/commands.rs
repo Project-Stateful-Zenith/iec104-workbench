@@ -481,12 +481,12 @@ impl Forms {
     }
 
     pub fn build(&mut self, ctx: &Context) -> Result<Vec<u8>, String> {
-        let ioa: u32 = parse(&self.ioa, "IOA")?;
+        // System commands but Read carry IOA 0 and hide the field.
         let objects = match self.tab {
-            Tab::Process => self.process_objects(ioa)?,
+            Tab::Process => self.process_objects(parse(&self.ioa, "IOA")?)?,
             Tab::System => self.system_objects()?,
-            Tab::Parameter => self.parameter_objects(ioa)?,
-            Tab::Monitor => self.monitor_objects(ioa)?,
+            Tab::Parameter => self.parameter_objects(parse(&self.ioa, "IOA")?)?,
+            Tab::Monitor => self.monitor_objects(parse(&self.ioa, "IOA")?)?,
             Tab::Manual => return crate::telegram::parse_hex(&self.manual),
         };
         let header = Header {
@@ -972,6 +972,19 @@ mod tests {
         let mut same = untagged.clone();
         retime(&mut same).unwrap();
         assert_eq!(same, untagged);
+    }
+
+    #[test]
+    fn system_commands_ignore_the_hidden_ioa() {
+        let mut forms = Forms {
+            tab: Tab::System,
+            qualifier: "20".into(),
+            ioa: String::new(),
+            ..Forms::default()
+        };
+        assert_eq!(built(&mut forms).header.type_id, TypeId::CIcNa1);
+        forms.system = SystemKind::Read;
+        assert!(forms.build(&CTX).is_err(), "Read shows and needs the IOA");
     }
 
     #[test]
