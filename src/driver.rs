@@ -240,12 +240,14 @@ pub mod tests {
         }
     }
 
-    /// A station on a free local port with CA 1 and IOA 100 = scaled 42.
-    pub fn station() -> (tokio::runtime::Runtime, u16) {
+    /// A station on a free local port with CA `ca`, IOA 100 = scaled 42 and
+    /// `members` redundancy group members.
+    pub fn station(ca: u16, members: usize) -> (tokio::runtime::Runtime, u16) {
         let station = tokio::runtime::Runtime::new().unwrap();
         let port = station.block_on(async {
-            let config =
-                ServerConfig::new(1).point(100, PointConfig::new(Value::Scaled(42)).untagged());
+            let mut config =
+                ServerConfig::new(ca).point(100, PointConfig::new(Value::Scaled(42)).untagged());
+            config.members = members;
             let server = Server::spawn(config, Accept).unwrap();
             server
                 .set(100, Value::Scaled(42), Quality::default())
@@ -261,7 +263,7 @@ pub mod tests {
 
     #[test]
     fn interrogates_a_station() {
-        let (_station, port) = station();
+        let (_station, port) = station(1, 1);
         let settings = Settings {
             port,
             ..Settings::default()
@@ -326,16 +328,7 @@ pub mod tests {
 
     #[test]
     fn finds_the_station_address() {
-        let station = tokio::runtime::Runtime::new().unwrap();
-        let port = station.block_on(async {
-            let config =
-                ServerConfig::new(5).point(100, PointConfig::new(Value::Scaled(42)).untagged());
-            let server = Server::spawn(config, Accept).unwrap();
-            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-            let port = listener.local_addr().unwrap().port();
-            tokio::spawn(server.serve(listener));
-            port
-        });
+        let (_station, port) = station(5, 1);
         let settings = Settings {
             port,
             ..Settings::default()
@@ -392,17 +385,7 @@ pub mod tests {
 
     #[test]
     fn switches_over_in_a_redundancy_group() {
-        let station = tokio::runtime::Runtime::new().unwrap();
-        let port = station.block_on(async {
-            let mut config =
-                ServerConfig::new(1).point(100, PointConfig::new(Value::Scaled(42)).untagged());
-            config.members = 2;
-            let server = Server::spawn(config, Accept).unwrap();
-            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-            let port = listener.local_addr().unwrap().port();
-            tokio::spawn(server.serve(listener));
-            port
-        });
+        let (_station, port) = station(1, 2);
 
         let settings = Settings {
             port,
