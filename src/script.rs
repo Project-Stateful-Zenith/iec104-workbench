@@ -516,7 +516,7 @@ mod tests {
     use crate::driver::tests::station;
 
     fn run_against_station(script: &str) -> (Result<(), String>, Vec<Telegram>) {
-        let (_station, port) = station();
+        let (_station, port) = station(1, 1);
         let settings = Settings {
             port,
             ..Settings::default()
