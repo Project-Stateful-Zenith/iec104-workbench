@@ -725,6 +725,21 @@ pub fn confirmation(asdu: &[u8], sizes: AddressSizes, type_id: u8, ioa: u32) -> 
     matches.then_some(header.cause == Cause::ActivationCon && !header.negative)
 }
 
+/// Sets a time-tagged command's CP56 time tag, its last seven octets, to
+/// now: an execute held for its select's confirmation would otherwise go out
+/// with the select's time, and stations refuse commands older than a limit.
+pub fn retime(asdu: &mut Vec<u8>) -> Result<(), String> {
+    let tagged = iec104::asdu::TypeId::CScTa1.to_u8()..=iec104::asdu::TypeId::CBoTa1.to_u8();
+    if !asdu.first().is_some_and(|t| tagged.contains(t)) {
+        return Ok(());
+    }
+    let at = asdu.len().checked_sub(7).ok_or("command too short")?;
+    let time = now()?;
+    asdu.truncate(at);
+    time.encode(asdu);
+    Ok(())
+}
+
 /// A station interrogation (QOI 20, cause act) to the broadcast common
 /// address, which 5-101 cl.7.2.4 allows for `C_IC_NA_1`: the station
 /// answers with its own common address.
@@ -929,6 +944,34 @@ mod tests {
         assert_eq!(confirmation(&confirmed, CTX.sizes, 45, 4001), Some(false));
         confirmed[2] = 6;
         assert_eq!(confirmation(&confirmed, CTX.sizes, 45, 4001), None);
+    }
+
+    #[test]
+    fn execute_gets_a_fresh_time_tag() {
+        let mut forms = Forms {
+            ioa: "4001".into(),
+            time_tag: true,
+            ..Forms::default()
+        };
+        let Ok(Action::SelectExecute { mut execute, .. }) = forms.select_execute(&CTX) else {
+            panic!()
+        };
+        let at = execute.len() - 7;
+        execute[at..].fill(0);
+        retime(&mut execute).unwrap();
+        let Objects::CScTa1(e) = decode(&execute).unwrap().objects else {
+            panic!()
+        };
+        let age = SystemTime::now()
+            .duration_since(e[0].value.time.to_system_time().unwrap())
+            .unwrap();
+        assert!(age.as_secs() < 5, "{age:?}");
+
+        forms.time_tag = false;
+        let untagged = forms.build(&CTX).unwrap();
+        let mut same = untagged.clone();
+        retime(&mut same).unwrap();
+        assert_eq!(same, untagged);
     }
 
     #[test]
