@@ -32,6 +32,9 @@ follow [Semantic Versioning](https://semver.org/).
 - Interrogation, counter interrogation, clock synchronisation, test and
   reset process are sent even when the IOA field, which their form does not
   show, holds no valid number.
+- The simulator log keeps at most 10 000 lines, dropping the older half when
+  full, and draws only the lines in view; it grew without limit and slowed
+  the window on long runs.
 
 ## [0.6.0] - 2026-10-21
 
