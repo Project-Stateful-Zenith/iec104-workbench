@@ -15,16 +15,16 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            bin: iec104-workbench
+            ext: ""
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            bin: iec104-workbench.exe
+            ext: .exe
           - os: macos-latest
             target: aarch64-apple-darwin
-            bin: iec104-workbench
+            ext: ""
           - os: macos-latest
             target: x86_64-apple-darwin
-            bin: iec104-workbench
+            ext: ""
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -35,13 +35,23 @@ jobs:
         if: runner.os == 'Windows'
         run: echo "RUSTFLAGS=-C target-feature=+crt-static" >> $env:GITHUB_ENV
       - run: cargo build --release --locked --target ${{ matrix.target }}
-      - name: Package
+      # The bare binary, so a download runs as it is and an updater needs no unpacking.
+      - name: Name the binary
         shell: bash
-        run: |
-          name=iec104-workbench-${GITHUB_REF_NAME}-${{ matrix.target }}
-          mkdir "$name"
-          cp "target/${{ matrix.target }}/release/${{ matrix.bin }}" README.md LICENSE "$name/"
-          if [ "${{ runner.os }}" = "Windows" ]; then 7z a "$name.zip" "$name"; else tar czf "$name.tar.gz" "$name"; fi
+        run: cp "target/${{ matrix.target }}/release/iec104-workbench${{ matrix.ext }}" "iec104-workbench-${GITHUB_REF_NAME}-${{ matrix.target }}${{ matrix.ext }}"
       - uses: softprops/action-gh-release@v2
         with:
-          files: iec104-workbench-*.*
+          files: iec104-workbench-v*
+
+  checksums:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: SHA256SUMS of every binary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern 'iec104-workbench-v*' --dir binaries
+          (cd binaries && sha256sum iec104-workbench-v* > ../SHA256SUMS)
+          cat SHA256SUMS
+          gh release upload "$GITHUB_REF_NAME" SHA256SUMS --repo "$GITHUB_REPOSITORY"
