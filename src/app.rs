@@ -34,7 +34,6 @@ struct Pending {
     ioa: u32,
     execute: Vec<u8>,
     sent: Instant,
-    timeout: Duration,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -366,7 +365,6 @@ impl App {
                     ioa,
                     execute,
                     sent: Instant::now(),
-                    timeout: Duration::from_secs(self.settings.t1),
                 });
                 self.status = format!("IOA {ioa}: select sent, waiting for confirmation");
             }
@@ -1367,7 +1365,7 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
         self.drain();
         if let Some(pending) = &self.pending {
-            if pending.sent.elapsed() >= pending.timeout {
+            if pending.sent.elapsed() >= Duration::from_secs(self.settings.t1) {
                 self.status = format!(
                     "IOA {}: no select confirmation within t1, not executed",
                     pending.ioa
