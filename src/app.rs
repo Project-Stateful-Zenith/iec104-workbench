@@ -20,6 +20,9 @@ use crate::telegram::{Category, Dir, Filter, MAX_TELEGRAMS, Matcher, Telegram, c
 
 const SETTINGS_KEY: &str = "settings";
 
+/// The most simulator log lines kept.
+const MAX_LOG: usize = 10_000;
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum View {
     Telegrams,
@@ -277,6 +280,7 @@ impl App {
                 NoticeKind::Window(room) => self.window = Some(room),
                 NoticeKind::Error(e) | NoticeKind::Status(e) => self.status = e,
                 NoticeKind::Log(line) => {
+                    crate::telegram::make_room(&mut self.log, MAX_LOG);
                     self.log
                         .push(format!("{} {line}", notice.at.format("%T%.3f")));
                 }
@@ -713,10 +717,11 @@ impl App {
             });
         });
         ui.separator();
+        let row_height = ui.text_style_height(&egui::TextStyle::Monospace);
         egui::ScrollArea::vertical()
             .stick_to_bottom(true)
-            .show(ui, |ui| {
-                for line in &self.log {
+            .show_rows(ui, row_height, self.log.len(), |ui, rows| {
+                for line in self.log.get(rows).unwrap_or_default() {
                     ui.monospace(line);
                 }
             });
