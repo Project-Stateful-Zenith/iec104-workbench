@@ -79,8 +79,9 @@ What it covers:
   a controlled station, over TCP or mutual TLS. It answers interrogation,
   counter interrogation, read, clock synchronisation and test commands from
   its points, sends a value you edit as a spontaneous event, sends points
-  cyclically (cause 1) at a period you set, takes commands on the points
-  you mark (directly or by select and execute), and can echo a command's
+  cyclically (cause 1) at a period you set, takes commands on its points
+  (directly or by select and execute; untick a point's Commands to refuse
+  them with cause 47, unknown IOA), and can echo a command's
   result as return information. Each point carries the IV, NT, SB, BL and
   OV quality flags you tick. It serves files too: a call directory lists
   them and a client can download them, and with Accept uploads on it saves

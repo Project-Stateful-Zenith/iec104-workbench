@@ -110,7 +110,7 @@ impl SimPoint {
             period: 0,
             group: 0,
             tagged: true,
-            commands: false,
+            commands: true,
         }
     }
 

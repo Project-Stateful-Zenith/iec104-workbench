@@ -16,6 +16,12 @@ follow [Semantic Versioning](https://semver.org/).
   display, in a Scaled column next to the raw value, in the chart and in the
   CSV export; scales are kept in the settings.
 
+### Changed
+
+- New simulator points take commands: the Commands column starts ticked.
+  Unticked, the station refuses a command to the point as unknown IOA
+  (cause 47), which looked like a fault.
+
 ### Fixed
 
 - Read (C_RD_NA_1) is sent with cause 5 (request) instead of 6, from the
