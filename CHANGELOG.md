@@ -6,6 +6,13 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- About → Install, next to a newer release found by Check for updates:
+  downloads this platform's binary, refuses it unless its SHA-256 matches the
+  release's `SHA256SUMS`, and replaces the running binary; the new version
+  starts with the next launch.
+
 ## [1.0.0] - 2026-10-23
 
 ### Added

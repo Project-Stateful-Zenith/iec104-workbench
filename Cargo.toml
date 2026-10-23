@@ -26,6 +26,8 @@ toml = "1.1"
 tokio = { version = "1.54", features = ["net", "rt-multi-thread", "sync", "time", "macros"] }
 rhai = "1.26"
 ureq = { version = "3.5", default-features = false, features = ["rustls", "json"] }
+self-replace = "1.5"
+ring = "0.17"
 
 [dev-dependencies]
 rcgen = "0.14"

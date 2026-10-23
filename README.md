@@ -122,8 +122,10 @@ first (`chmod +x iec104-workbench-*`); macOS may also ask you to allow it in
 System Settings → Privacy & Security, as the binary is not signed.
 
 About → Check for updates asks GitHub for the latest release and links to
-it when it is newer. The workbench makes no other connection of its own and
-never checks by itself; replacing the binary is up to you.
+it when it is newer. Install then downloads this platform's binary, checks it
+against the release's `SHA256SUMS` and puts it in place of the running one;
+restart to use it. The workbench makes no other connection of its own and
+never checks or installs by itself.
 
 A recording (Telegrams → Save recording) holds one telegram per line: Unix
 time in milliseconds, `TX` or `RX`, the APDU in hex. A `# sizes` line gives
