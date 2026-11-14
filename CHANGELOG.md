@@ -10,6 +10,13 @@ follow [Semantic Versioning](https://semver.org/).
 
 - Built on zenith-iec104 0.37.
 
+### Fixed
+
+- Redundancy groups: data a failed started connection left unconfirmed is
+  sent again also when the connection that took over was lost before it
+  could carry the data. It was dropped then, and on zenith-iec104 0.37
+  nothing sent afterwards left the workbench until the next Connect.
+
 ## [1.1.0] - 2026-10-23
 
 ### Added
