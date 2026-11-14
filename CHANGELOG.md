@@ -6,6 +6,8 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-11-14
+
 ### Changed
 
 - Built on zenith-iec104 0.37.
@@ -222,7 +224,8 @@ The first release.
 - TOML profiles; the last settings are remembered.
 - Prebuilt binaries for Windows, macOS and Linux.
 
-[Unreleased]: https://github.com/Project-Stateful-Zenith/iec104-workbench/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/Project-Stateful-Zenith/iec104-workbench/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/Project-Stateful-Zenith/iec104-workbench/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/Project-Stateful-Zenith/iec104-workbench/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/Project-Stateful-Zenith/iec104-workbench/compare/v0.6.0...v1.0.0
 [0.6.0]: https://github.com/Project-Stateful-Zenith/iec104-workbench/compare/v0.5.0...v0.6.0
