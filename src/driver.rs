@@ -4,7 +4,7 @@ use chrono::{DateTime, Local};
 use iec104::link::{Role, State};
 use iec104::manager::{ConnectionManager, StationConfig};
 use iec104::params::LinkParams;
-use iec104::redundancy::{RedundancyGroup, Replay, ReplayOutcome, Switchover};
+use iec104::redundancy::{GroupError, RedundancyGroup, Replay, ReplayOutcome, Switchover};
 use iec104_tls::tokio::TlsConnector;
 use iec104_tokio::{Connector, Event, Events, Handle, Options, TcpConnector, master};
 use tokio::runtime::Runtime;
@@ -119,19 +119,7 @@ impl Driver {
                     let _ = forward.send(Notice::now(NoticeKind::Window(room)));
                 }
                 if started {
-                    for conn in std::mem::take(&mut failed) {
-                        let text = match window
-                            .retransmit_unconfirmed(conn, Replay::Retransmit)
-                            .await
-                        {
-                            Ok(ReplayOutcome::Retransmitted { .. }) => {
-                                format!("conn {conn}'s unconfirmed data sent again")
-                            }
-                            Ok(_) => continue,
-                            Err(e) => format!("retransmitting conn {conn}'s unconfirmed data: {e}"),
-                        };
-                        let _ = forward.send(Notice::now(NoticeKind::Status(text)));
-                    }
+                    replay(&window, &mut failed, &forward).await;
                 }
                 if sent.is_err() {
                     break;
@@ -182,6 +170,30 @@ impl Driver {
     }
 }
 
+async fn replay(handle: &Handle, failed: &mut Vec<usize>, notices: &mpsc::Sender<Notice>) {
+    for conn in std::mem::take(failed) {
+        let text = match handle
+            .retransmit_unconfirmed(conn, Replay::Retransmit)
+            .await
+        {
+            Ok(ReplayOutcome::Retransmitted { .. }) => {
+                format!("conn {conn}'s unconfirmed data sent again")
+            }
+            Ok(_) => continue,
+            Err(e) => {
+                if matches!(
+                    e,
+                    iec104_tokio::Error::Group(GroupError::NoStartedConnection)
+                ) {
+                    failed.push(conn);
+                }
+                format!("retransmitting conn {conn}'s unconfirmed data: {e}")
+            }
+        };
+        let _ = notices.send(Notice::now(NoticeKind::Status(text)));
+    }
+}
+
 /// One address is a single connection; more are a redundancy group's members
 /// (clause 10), all to the same station.
 fn spawn<K: Connector>(
@@ -223,6 +235,10 @@ pub const fn state_name(state: State) -> &'static str {
 
 #[cfg(test)]
 pub mod tests {
+    use std::io::{Read, Write};
+    use std::net::{Shutdown, TcpListener, TcpStream};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
     use iec104::asdu::{Quality, Value};
@@ -450,6 +466,202 @@ pub mod tests {
         });
         assert_eq!(started(&rx), first);
         assert_eq!(interrogated_on(&rx), first);
+        driver.shutdown();
+    }
+
+    struct Silent {
+        port: u16,
+        asdus: mpsc::Receiver<(usize, Vec<u8>)>,
+        sockets: Arc<Mutex<Vec<TcpStream>>>,
+        close_after_next_start: Arc<AtomicBool>,
+    }
+
+    impl Silent {
+        fn listen() -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let (tx, asdus) = mpsc::channel();
+            let sockets = Arc::new(Mutex::new(Vec::new()));
+            let close_after_next_start = Arc::new(AtomicBool::new(false));
+            let accepted = Arc::clone(&sockets);
+            let closing = Arc::clone(&close_after_next_start);
+            std::thread::spawn(move || {
+                for socket in listener.incoming() {
+                    let Ok(socket) = socket else { break };
+                    let id = {
+                        let mut sockets = accepted.lock().unwrap();
+                        sockets.push(socket.try_clone().unwrap());
+                        sockets.len().saturating_sub(1)
+                    };
+                    let tx = tx.clone();
+                    let closing = Arc::clone(&closing);
+                    std::thread::spawn(move || Self::answer(id, socket, &tx, &closing));
+                }
+            });
+            Self {
+                port,
+                asdus,
+                sockets,
+                close_after_next_start,
+            }
+        }
+
+        fn answer(
+            id: usize,
+            mut socket: TcpStream,
+            asdus: &mpsc::Sender<(usize, Vec<u8>)>,
+            close_after_next_start: &AtomicBool,
+        ) {
+            loop {
+                let mut start = [0_u8; 2];
+                if socket.read_exact(&mut start).is_err() {
+                    return;
+                }
+                let mut apdu = vec![0_u8; usize::from(start[1])];
+                if socket.read_exact(&mut apdu).is_err() {
+                    return;
+                }
+                let confirmation = match apdu[0] {
+                    0x07 => Some(0x0B),
+                    0x13 => Some(0x23),
+                    0x43 => Some(0x83),
+                    control if control & 1 == 0 => {
+                        if asdus.send((id, apdu[4..].to_vec())).is_err() {
+                            return;
+                        }
+                        None
+                    }
+                    _ => None,
+                };
+                if let Some(control) = confirmation
+                    && socket.write_all(&[0x68, 4, control, 0, 0, 0]).is_err()
+                {
+                    return;
+                }
+                if apdu[0] == 0x07 && close_after_next_start.swap(false, Ordering::SeqCst) {
+                    let _ = socket.shutdown(Shutdown::Both);
+                    return;
+                }
+            }
+        }
+
+        fn close(&self, id: usize) {
+            let _ = self.sockets.lock().unwrap()[id].shutdown(Shutdown::Both);
+        }
+
+        fn receives(&self, asdu: &[u8]) -> usize {
+            for _ in 0..100 {
+                if let Ok((id, received)) = self.asdus.recv_timeout(Duration::from_millis(100))
+                    && received == asdu
+                {
+                    return id;
+                }
+            }
+            panic!("the station did not receive {asdu:02X?}");
+        }
+    }
+
+    fn group_of_two(port: u16) -> Settings {
+        Settings {
+            port,
+            t0: 1,
+            redundant: vec![format!("127.0.0.1:{port}")],
+            ..Settings::default()
+        }
+    }
+
+    fn interrogation(settings: &Settings, system: SystemKind, qualifier: &str) -> Vec<u8> {
+        Forms {
+            tab: Tab::System,
+            system,
+            qualifier: qualifier.into(),
+            ..Forms::default()
+        }
+        .build(&Context {
+            sizes: settings.sizes().unwrap(),
+            common_address: 1,
+            originator: 0,
+        })
+        .unwrap()
+    }
+
+    fn started(rx: &mpsc::Receiver<Notice>) -> usize {
+        wait(rx, |event| match event {
+            Event::State {
+                conn,
+                state: State::Started,
+            } => Some(conn),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn unconfirmed_data_goes_again_after_the_started_connection_is_lost() {
+        let station = Silent::listen();
+        let settings = group_of_two(station.port);
+        let (tx, rx) = mpsc::channel();
+        let driver = Driver::connect(&settings, tx, || {}).unwrap();
+        let unconfirmed = interrogation(&settings, SystemKind::Interrogation, "20");
+        let later = interrogation(&settings, SystemKind::CounterInterrogation, "5");
+
+        started(&rx);
+        driver.send(unconfirmed.clone());
+        let lost = station.receives(&unconfirmed);
+        station.close(lost);
+
+        started(&rx);
+        assert_ne!(station.receives(&unconfirmed), lost);
+        driver.send(later.clone());
+        assert_ne!(station.receives(&later), lost);
+        driver.shutdown();
+    }
+
+    #[test]
+    fn unconfirmed_data_goes_again_after_a_manual_switchover() {
+        let station = Silent::listen();
+        let settings = group_of_two(station.port);
+        let (tx, rx) = mpsc::channel();
+        let driver = Driver::connect(&settings, tx, || {}).unwrap();
+        let unconfirmed = interrogation(&settings, SystemKind::Interrogation, "20");
+        let later = interrogation(&settings, SystemKind::CounterInterrogation, "5");
+
+        let first = started(&rx);
+        let other = 1 - first;
+        driver.send(unconfirmed.clone());
+        let displaced = station.receives(&unconfirmed);
+        for _ in 0..100 {
+            if driver.runtime.block_on(driver.handle.state(other)).unwrap() == State::Stopped {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        driver.start(other);
+
+        assert_eq!(started(&rx), other);
+        assert_ne!(station.receives(&unconfirmed), displaced);
+        driver.send(later.clone());
+        assert_ne!(station.receives(&later), displaced);
+        driver.shutdown();
+    }
+
+    #[test]
+    fn unconfirmed_data_goes_again_when_the_connection_taking_over_is_lost_too() {
+        let station = Silent::listen();
+        let settings = group_of_two(station.port);
+        let (tx, rx) = mpsc::channel();
+        let driver = Driver::connect(&settings, tx, || {}).unwrap();
+        let unconfirmed = interrogation(&settings, SystemKind::Interrogation, "20");
+        let later = interrogation(&settings, SystemKind::CounterInterrogation, "5");
+
+        started(&rx);
+        driver.send(unconfirmed.clone());
+        let lost = station.receives(&unconfirmed);
+        station.close_after_next_start.store(true, Ordering::SeqCst);
+        station.close(lost);
+
+        assert_ne!(station.receives(&unconfirmed), lost);
+        driver.send(later.clone());
+        assert_ne!(station.receives(&later), lost);
         driver.shutdown();
     }
 }
