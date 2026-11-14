@@ -1277,13 +1277,13 @@ dependencies = [
 
 [[package]]
 name = "iec104"
-version = "0.36.0"
-source = "git+https://github.com/Project-Stateful-Zenith/zenith-iec104?tag=v0.36.0#6a9c06d47663990d5106226883306cd451217934"
+version = "0.37.0"
+source = "git+https://github.com/Project-Stateful-Zenith/zenith-iec104?tag=v0.37.0#08c2a465d13ce834a2734e445cbd350ac00b2211"
 
 [[package]]
 name = "iec104-tls"
-version = "0.36.0"
-source = "git+https://github.com/Project-Stateful-Zenith/zenith-iec104?tag=v0.36.0#6a9c06d47663990d5106226883306cd451217934"
+version = "0.37.0"
+source = "git+https://github.com/Project-Stateful-Zenith/zenith-iec104?tag=v0.37.0#08c2a465d13ce834a2734e445cbd350ac00b2211"
 dependencies = [
  "iec104-tokio",
  "rustls",
@@ -1293,8 +1293,8 @@ dependencies = [
 
 [[package]]
 name = "iec104-tokio"
-version = "0.36.0"
-source = "git+https://github.com/Project-Stateful-Zenith/zenith-iec104?tag=v0.36.0#6a9c06d47663990d5106226883306cd451217934"
+version = "0.37.0"
+source = "git+https://github.com/Project-Stateful-Zenith/zenith-iec104?tag=v0.37.0#08c2a465d13ce834a2734e445cbd350ac00b2211"
 dependencies = [
  "iec104",
  "tokio",

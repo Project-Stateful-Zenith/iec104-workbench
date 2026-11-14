@@ -6,6 +6,10 @@ follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Built on zenith-iec104 0.37.
+
 ## [1.1.0] - 2026-10-23
 
 ### Added
